@@ -152,6 +152,7 @@ pause_demo
 
 say "6. Plan B / reset"
 note "Si algo falla en escena: demo/DEMO.md tiene el link al run fallido de CI ya grabado."
-note "Para volver a main limpio:  bash demo/reset.sh"
+note "Para seguir con el Acto 2 NO hace falta resetear: el acto limpia esto solo."
+note "Para repetir la demo desde cero:  bash demo/reset.sh"
 echo ""
 ok "Fin del Acto 1."

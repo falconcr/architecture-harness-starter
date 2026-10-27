@@ -18,9 +18,18 @@ make install-rollouts-plugin         # el Acto 2 se ve MUCHO mejor con el plugin
 make up
 make rollout-status                  # tiene que decir Healthy, 5/5
 
-# Entre ensayos
+# Entre ensayos completos
 bash demo/reset.sh
 ```
+
+**Los tres actos se encadenan: NO hace falta resetear entre uno y otro.** Cada acto limpia solo
+los restos del anterior y vuelve a `main` antes de empezar (lo avisa en pantalla). `demo/reset.sh`
+es para **repetir la demo desde cero**, no para pasar de un acto al siguiente.
+
+Y dos cosas que `reset.sh` **no** hace, a propósito: no descarta cambios sin commitear que no sean
+de la demo, y no borra una rama de demo que tenga commits tuyos. En los dos casos aborta y te dice
+cómo salvarlos. (Las dos protecciones existen porque, verificando este repo, el reset se comió dos
+arreglos sin commitear.)
 
 **La demo necesita red.** Argo CD sincroniza desde tu repo en GitHub (eso es el punto del ADR-003:
 el único camino al cluster es un commit). Si te quedás sin red, los tres planes B funcionan offline.

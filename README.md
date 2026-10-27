@@ -231,11 +231,11 @@ make argocd-ui          # https://localhost:8080  (make argocd-password)
 make prom-ui            # http://localhost:9090
 make smoke              # pegarle al servicio
 
-# 4. La demo
+# 4. La demo (los tres actos se encadenan: no hace falta resetear en medio)
 bash demo/act1-arch-violation.sh
 bash demo/act2-canary-catches-bug.sh
 bash demo/act3-close-the-loop.sh
-bash demo/reset.sh      # repetir desde cero
+bash demo/reset.sh      # solo para repetir la demo desde cero
 
 # 5. Limpiar
 make down               # borra el cluster y todo lo que creamos
