@@ -1,4 +1,6 @@
 import { InvalidOrderError } from './errors.js';
+// El agente agrego esto: el dominio pasa a depender de infraestructura.
+import { db } from '../infrastructure/db.js';
 
 export interface OrderLine {
   readonly sku: string;
@@ -58,4 +60,16 @@ export function createOrder(input: NewOrder): Order {
 
 export function totalOf(lines: readonly OrderLine[]): number {
   return lines.reduce((acc, line) => acc + line.quantity * line.unitPriceCents, 0);
+}
+
+/**
+ * El agente agrego esta funcion al dominio porque "ahi estaba la entidad Order".
+ * Parece razonable. Rompe el ADR-001.
+ */
+export async function persistOrder(order: Order): Promise<void> {
+  await db.query('INSERT INTO orders (id, customer_id, total_cents) VALUES ($1, $2, $3)', [
+    order.id,
+    order.customerId,
+    order.totalCents,
+  ]);
 }
