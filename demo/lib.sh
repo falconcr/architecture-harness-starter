@@ -40,13 +40,61 @@ banner() {
   printf '%s%s%s\n\n' "$BOLD$CYAN" "============================================================" "$RESET"
 }
 
+# Archivos que crean o modifican los actos. Si lo unico sucio es esto, lo
+# limpiamos solos: en escena no sirve que el Acto 2 se niegue a arrancar porque
+# quedaron los restos del Acto 1.
+ACT_ARTIFACTS=(
+  "src/infrastructure/db.ts"
+  "test/fault-rate-guard.test.ts"
+  "policy/fault-injection.rego"
+)
+ACT_TOUCHED_FILES=(
+  "src/domain/order.ts"
+  "src/infrastructure/config.ts"
+  "test/routes.test.ts"
+  "test/metrics.test.ts"
+  "deploy/k8s/rollout.yaml"
+)
+
+is_act_leftover() {
+  local path="$1"
+  local known
+  for known in "${ACT_ARTIFACTS[@]}" "${ACT_TOUCHED_FILES[@]}"; do
+    [[ "$path" == "$known" ]] && return 0
+  done
+  return 1
+}
+
 require_clean_tree() {
+  local dirty unexpected=()
+  dirty="$(git status --porcelain)"
+  [[ -z "$dirty" ]] && return 0
+
+  while read -r line; do
+    [[ -z "$line" ]] && continue
+    local path="${line:3}"
+    is_act_leftover "$path" || unexpected+=("$line")
+  done <<<"$dirty"
+
+  if [[ ${#unexpected[@]} -gt 0 ]]; then
+    bad "El arbol de trabajo tiene cambios que no son de la demo."
+    note "Guardalos o descartalos y volvé a correr el acto."
+    printf '%s\n' "${unexpected[@]}"
+    exit 1
+  fi
+
+  warn "Limpiando los restos del acto anterior (no hace falta reset completo):"
+  git status --short | sed 's/^/      /'
+  rm -f "${ACT_ARTIFACTS[@]}"
+  git checkout -- "${ACT_TOUCHED_FILES[@]}" 2>/dev/null || true
+  git switch -q main 2>/dev/null || true
+
   if [[ -n "$(git status --porcelain)" ]]; then
-    bad "El arbol de trabajo tiene cambios sin commitear."
-    note "Corré 'bash demo/reset.sh' antes de empezar el acto."
+    bad "No pude dejar el arbol limpio. Corré: bash demo/reset.sh"
     git status --short
     exit 1
   fi
+  ok "Arbol limpio, en main."
 }
 
 require_cluster() {
