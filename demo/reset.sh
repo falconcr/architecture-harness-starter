@@ -4,11 +4,30 @@
 # No borra el cluster (eso es `make down`): solo deshace lo que hacen los actos.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-DEMO_BRANCHES=(
+# Ramas EFIMERAS: las crean los actos en vivo y se borran en cada reset,
+# local y en origin (si no, el siguiente push falla por non-fast-forward).
+EPHEMERAL_BRANCHES=(
   "demo/acto-1-violacion"
   "demo/acto-2-canary"
   "fix/fault-rate-guard"
 )
+
+# Ramas PERMANENTES de plan B: NO se tocan nunca. Son las que sostienen la demo
+# si algo falla en escena (el run fallido grabado del Acto 1 y el PR del Acto 3).
+#   demo/acto-1-violacion  en origin  -> PR con el run de CI fallido
+#   demo/acto-3-fix        en origin  -> el fix listo para abrir el PR
+PRESERVE_ON_ORIGIN=(
+  "demo/acto-1-violacion"
+  "demo/acto-3-fix"
+)
+
+preserved_on_origin() {
+  local branch="$1"
+  for keep in "${PRESERVE_ON_ORIGIN[@]}"; do
+    [[ "$branch" == "$keep" ]] && return 0
+  done
+  return 1
+}
 
 banner "RESET de la demo"
 
@@ -20,16 +39,22 @@ run git clean -fd src/infrastructure/db.ts test/fault-rate-guard.test.ts policy/
 rm -f src/infrastructure/db.ts test/fault-rate-guard.test.ts policy/fault-injection.rego
 git checkout -- . 2>/dev/null || true
 
-say "2. Borrar las ramas de demo (local y remoto)"
-for branch in "${DEMO_BRANCHES[@]}"; do
+say "2. Borrar las ramas efimeras de la demo"
+for branch in "${EPHEMERAL_BRANCHES[@]}"; do
   if git show-ref --verify --quiet "refs/heads/$branch"; then
-    git branch -D "$branch" && note "borrada local: $branch"
+    git branch -D "$branch" >/dev/null && note "borrada local: $branch"
   fi
+
+  if preserved_on_origin "$branch"; then
+    note "conservada en origin: $branch (es plan B: sostiene el run fallido grabado)"
+    continue
+  fi
+
   if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
     if git push origin --delete "$branch" >/dev/null 2>&1; then
       note "borrada en origin: $branch"
     else
-      warn "no pude borrar $branch en origin (borrala a mano si la necesitas limpia)"
+      warn "no pude borrar $branch en origin (borrala a mano antes de repetir el acto)"
     fi
   fi
 done
