@@ -202,7 +202,7 @@ fix: FAULT_RATE requiere habilitacion explicita
 
 Causa raiz: FAULT_RATE se lee directo del entorno, asi que un valor heredado de
 una rama de demo puede degradar el servicio en cualquier entorno. El canary lo
-atrapo (AnalysisTemplate error-rate, 29,8 % de errores contra un umbral de 5 %)
+atrapo (AnalysisTemplate error-rate, 26,3 % de errores contra un umbral de 5 %)
 y Argo Rollouts revirtio solo.
 
 Fix: FAULT_RATE solo tiene efecto si ALLOW_FAULT_INJECTION=true.
@@ -222,7 +222,7 @@ cat > "$PR_BODY" <<'MSG'
 
 ### Impacto
 La revision canary devolvia 500 en ~3 de cada 10 requests a `/orders`. Con 20 % del trafico,
-el `AnalysisTemplate` **error-rate** midio 29,8 % contra un umbral de 5 % y **Argo Rollouts
+el `AnalysisTemplate` **error-rate** midio 26,3 % contra un umbral de 5 % y **Argo Rollouts
 abortó el rollout y volvio a la revision estable**. Ningun humano intervino.
 
 ### Causa raiz
@@ -230,7 +230,7 @@ abortó el rollout y volvio a la revision estable**. Ningun humano intervino.
 una rama de demo puede degradar el servicio en cualquier entorno.
 
 ### Evidencia
-- `error-rate` del canary: **0,298** (umbral 0,05) → `Failed`
+- `error-rate` del canary: **0,263** (umbral 0,05) → `Failed`
 - `latency-p95`: normal → no era un problema de performance
 - Manifiesto: `deploy/k8s/rollout.yaml` con `FAULT_RATE: "0.3"`
 

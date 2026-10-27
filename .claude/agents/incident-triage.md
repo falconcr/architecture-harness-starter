@@ -103,7 +103,7 @@ AnalysisTemplate `error-rate`, que abortó el rollout de la revisión N y volvi�
 <una frase>. Introducida en `<hash>` (<fecha>).
 
 ### Evidencia
-- Métrica: error-rate del canary = 0,298 (umbral 0,05)
+- Métrica: error-rate del canary = 0,263 (umbral 0,05)
 - Log: `…`
 - Commit: `…`
 

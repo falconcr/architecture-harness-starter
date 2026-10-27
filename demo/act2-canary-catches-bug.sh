@@ -77,21 +77,36 @@ note "El AnalysisTemplate espera 30 s, mide 3 veces cada 20 s, y con UNA medicio
 note "fallida aborta. Mirá la columna de los AnalysisRun."
 echo ""
 
-if command -v kubectl-argo-rollouts >/dev/null 2>&1; then
-  warn "Abriendo el watch. Salí con Ctrl+C cuando veas 'Degraded' / el rollback."
-  if [[ "${DEMO_AUTO:-0}" == "1" ]]; then
-    timeout 300 kubectl argo rollouts get rollout orders \
-      -n "$APP_NAMESPACE" --context "$KUBE_CONTEXT" --watch 2>&1 | head -120 || true
-  else
-    kubectl argo rollouts get rollout orders -n "$APP_NAMESPACE" --context "$KUBE_CONTEXT" --watch || true
-  fi
-else
-  for _ in $(seq 1 30); do
-    clear
-    rollout_view
-    $KUBECTL -n "$APP_NAMESPACE" get analysisrun -o wide 2>/dev/null || true
+# Espera hasta que el Rollout llegue a un estado terminal (Degraded = abortado y
+# revertido, Healthy = promovido). Nunca corta antes de que el gate decida.
+wait_for_verdict() {
+  for _ in $(seq 1 60); do
+    local phase
+    phase="$($KUBECTL -n "$APP_NAMESPACE" get rollout orders -o jsonpath='{.status.phase}' 2>/dev/null || echo '')"
+    case "$phase" in
+      Degraded)
+        echo ""; bad "Rollout Degraded: el analisis fallo y Argo Rollouts revirtio solo."; return 0 ;;
+      Healthy)
+        echo ""; ok "Rollout Healthy: el analisis paso y la version se promovio."; return 0 ;;
+    esac
+    printf '  %s. esperando el veredicto del gate (fase actual: %s)%s\n' "$DIM" "${phase:-?}" "$RESET"
     sleep 10
   done
+  warn "El gate no decidio en 10 minutos. Mirá 'make analysis'."
+}
+
+if [[ "${DEMO_AUTO:-0}" == "1" ]]; then
+  # Modo no interactivo (verificacion): no abrimos el watch, esperamos el veredicto.
+  wait_for_verdict
+  rollout_view
+elif command -v kubectl-argo-rollouts >/dev/null 2>&1; then
+  warn "Abriendo el watch. Salí con Ctrl+C cuando veas 'Degraded' y el rollback."
+  kubectl argo rollouts get rollout orders -n "$APP_NAMESPACE" --context "$KUBE_CONTEXT" --watch || true
+else
+  warn "Sin el plugin argo rollouts: refresco cada 10 s hasta el veredicto."
+  wait_for_verdict
+  rollout_view
+  $KUBECTL -n "$APP_NAMESPACE" get analysisrun -o wide 2>/dev/null || true
 fi
 
 say "5. Que vio el gate"

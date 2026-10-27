@@ -163,10 +163,21 @@ PR que dejó `architect-reviewer` es la frutilla: podés mostrar los dos lados d
 > El valor no está en el dashboard. Está en que **nadie necesite mirar el dashboard** para que el
 > rollback ocurra.
 >
+> *(mostrar `make analysis`)*
+>
+> Y acá está el mensaje exacto, para que no parezca magia:
+> `RolloutAborted: Metric "error-rate" assessed Failed due to failed (2) > failureLimit (1)`.
+> Dos mediciones por encima del umbral, y el límite era una.
+>
 > *(Terminal B: canary-analyst)*
 >
-> Ahora sí, el agente. Error rate del canary: 0,30 contra un umbral de 0,05. Latencia normal, así
-> que no era performance. Veredicto: el gate decidió bien.
+> Ahora sí, el agente. Error rate del canary: **0,263** contra un umbral de 0,05. Latencia normal
+> (4,8 ms), así que no era performance. Veredicto: el gate decidió bien.
+>
+> Y un detalle honesto: `FAULT_RATE` es 0,3 pero el gate midió 0,263, porque `/healthz` y
+> `/readyz` del canary **nunca** fallan y diluyen un poco el promedio. Está bien que sea así: si
+> la salud también fallara, el pod moriría por readiness y el canary se caería por otra razón, no
+> por el análisis de métricas, que es lo que queremos mostrar.
 >
 > Y `canary-analyst` **no puede promover ni abortar**. Llega después del rollback, no en lugar del
 > rollback. Su trabajo es que yo entienda en treinta segundos lo que pasó, no decidir.
@@ -279,7 +290,7 @@ Descripción lista para pegar (si `gh` falla y lo tenés que crear desde la web)
 
 ### Impacto
 La revisión canary devolvía 500 en ~3 de cada 10 requests a `/orders`. Con 20 % del tráfico, el
-`AnalysisTemplate` **error-rate** midió 29,8 % contra un umbral de 5 % y **Argo Rollouts abortó el
+`AnalysisTemplate` **error-rate** midió 26,3 % contra un umbral de 5 % y **Argo Rollouts abortó el
 rollout y volvió a la revisión estable**. Ningún humano intervino.
 
 ### Causa raíz
@@ -287,7 +298,7 @@ rollout y volvió a la revisión estable**. Ningún humano intervino.
 una rama de demo puede degradar el servicio en cualquier entorno.
 
 ### Evidencia
-- `error-rate` del canary: **0,298** (umbral 0,05) → `Failed`
+- `error-rate` del canary: **0,263** (umbral 0,05) → `Failed`
 - `latency-p95`: normal → no era un problema de performance
 - Manifiesto: `deploy/k8s/rollout.yaml` con `FAULT_RATE: "0.3"`
 

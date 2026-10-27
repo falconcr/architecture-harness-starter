@@ -77,7 +77,7 @@ El `<HASH>` es el `rollouts-pod-template-hash` de la revisión canary; sale de
 ### Qué se midió
 | Métrica | Umbral | Canary | Estable | Resultado |
 |---|---|---|---|---|
-| error-rate | < 5 % | 29,8 % | 0,0 % | FALLÓ |
+| error-rate | < 5 % | 26,3 % | 0,0 % | FALLÓ |
 | latency-p95 | < 300 ms | 41 ms | 38 ms | pasó |
 
 ### Qué pasó, en una frase
