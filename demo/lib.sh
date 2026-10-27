@@ -65,10 +65,24 @@ is_act_leftover() {
   return 1
 }
 
+# Todo acto arranca desde main. Si no, el Acto 3 se construye sobre la rama del
+# Acto 2 (que lleva FAULT_RATE=0.3 commiteado), el guardrail nuevo rechaza su
+# propio manifiesto y el acto aborta. Pasó verificando este repo.
+ensure_on_main() {
+  local current
+  current="$(git branch --show-current)"
+  [[ "$current" == "main" ]] && return 0
+  note "Volviendo a main (estabas en '$current')."
+  git switch -q main
+}
+
 require_clean_tree() {
   local dirty unexpected=()
   dirty="$(git status --porcelain)"
-  [[ -z "$dirty" ]] && return 0
+  if [[ -z "$dirty" ]]; then
+    ensure_on_main
+    return 0
+  fi
 
   # IFS= es obligatorio: sin eso `read` recorta el espacio inicial de
   # `git status --porcelain` (" M archivo") y el recorte del path se desalinea.
@@ -89,7 +103,7 @@ require_clean_tree() {
   git status --short | sed 's/^/      /'
   rm -f "${ACT_ARTIFACTS[@]}"
   git checkout -- "${ACT_TOUCHED_FILES[@]}" 2>/dev/null || true
-  git switch -q main 2>/dev/null || true
+  ensure_on_main
 
   if [[ -n "$(git status --porcelain)" ]]; then
     bad "No pude dejar el arbol limpio. Corré: bash demo/reset.sh"
