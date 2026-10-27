@@ -124,6 +124,26 @@ describe('FAULT_RATE necesita habilitacion explicita', () => {
 });
 ''')
 print("  test/fault-rate-guard.test.ts  (el test de regresion)")
+
+# --- 3) El fix cambia el contrato de FAULT_RATE: los tests que dependian del
+#        comportamiento anterior se actualizan EN EL MISMO PR, a la vista.
+routes = Path("test/routes.test.ts")
+source = routes.read_text()
+source = source.replace(
+    "const server = await startApp({ FAULT_RATE: '0.3' });",
+    "const server = await startApp({ FAULT_RATE: '0.3', ALLOW_FAULT_INJECTION: 'true' });",
+)
+routes.write_text(source)
+print("  test/routes.test.ts            (actualizado al contrato nuevo)")
+
+metrics = Path("test/metrics.test.ts")
+source = metrics.read_text()
+source = source.replace(
+    "loadConfig({ LOG_LEVEL: 'silent', FAULT_RATE: '0.5' })",
+    "loadConfig({ LOG_LEVEL: 'silent', FAULT_RATE: '0.5', ALLOW_FAULT_INJECTION: 'true' })",
+)
+metrics.write_text(source)
+print("  test/metrics.test.ts           (actualizado al contrato nuevo)")
 PY
 
 run git --no-pager diff --stat
@@ -174,14 +194,23 @@ deny contains msg if {
 REGO
 echo ""
 note "Prueba del guardrail nuevo: tiene que RECHAZAR el manifiesto del Acto 2."
-mkdir -p /tmp/harness-guardrail-check
-sed -e 's/value: "0"/value: "0.3"/' deploy/k8s/rollout.yaml > /tmp/harness-guardrail-check/rollout.yaml
-if bash scripts/conftest.sh /tmp/harness-guardrail-check 2>&1 | grep -q 'FAULT_RATE'; then
-  ok "El guardrail rechaza el manifiesto que causo el incidente."
+# El directorio de prueba va DENTRO del repo: conftest puede correr en un contenedor
+# que solo monta el repo, asi que una ruta de /tmp no existiria ahi adentro.
+GUARDRAIL_CHECK_DIR=".harness-tmp/guardrail-check"
+mkdir -p "$GUARDRAIL_CHECK_DIR"
+sed -e 's/value: "0"/value: "0.3"/' deploy/k8s/rollout.yaml > "$GUARDRAIL_CHECK_DIR/rollout.yaml"
+# Capturamos la salida en una variable ANTES de buscar: con `pipefail` activo, el
+# `if` de un pipe lee el exit code de conftest (1 porque la policy FALLA, que es
+# justo lo que queremos comprobar) en vez del de grep.
+guardrail_output="$(bash scripts/conftest.sh "$GUARDRAIL_CHECK_DIR" 2>&1 || true)"
+if grep -q 'FAULT_RATE' <<<"$guardrail_output"; then
+  ok "El guardrail rechaza el manifiesto que causo el incidente:"
+  grep -E 'FAIL' <<<"$guardrail_output" | sed 's/^/    /'
 else
   bad "El guardrail NO atrapo el manifiesto. Revisá policy/fault-injection.rego"
+  tail -5 <<<"$guardrail_output"
 fi
-rm -rf /tmp/harness-guardrail-check
+rm -rf .harness-tmp
 echo ""
 note "Y acepta el manifiesto sano de main:"
 run npm run policy
@@ -189,24 +218,37 @@ pause_demo
 
 say "5. Los gates deterministas, antes de abrir el PR"
 note "incident-triage no abre un PR que no pase 'npm run verify'. Ni deberia."
-run npm run verify
 echo ""
-ok "Todos los gates pasan."
+printf '%s$ npm run verify%s\n' "$BOLD" "$RESET"
+if ! npm run verify; then
+  echo ""
+  bad "npm run verify FALLO: no se abre el PR."
+  note "Esto no es un bug de la demo: es el gate funcionando. Un agente que abre"
+  note "un PR que no pasa los gates le pasa el problema al revisor humano."
+  note "Arreglá lo que falla y volvé a correr el acto."
+  exit 1
+fi
+echo ""
+ok "Todos los gates pasan. Ahora si se puede abrir el PR."
 pause_demo
 
 say "6. El PR"
-run git add src/infrastructure/config.ts test/fault-rate-guard.test.ts policy/fault-injection.rego
+run git add src/infrastructure/config.ts test/fault-rate-guard.test.ts \
+  test/routes.test.ts test/metrics.test.ts policy/fault-injection.rego
 
 git commit -q -F - <<'MSG'
 fix: FAULT_RATE requiere habilitacion explicita
 
 Causa raiz: FAULT_RATE se lee directo del entorno, asi que un valor heredado de
 una rama de demo puede degradar el servicio en cualquier entorno. El canary lo
-atrapo (AnalysisTemplate error-rate, 29,8 % de errores contra un umbral de 5 %)
+atrapo (AnalysisTemplate error-rate, 26,3 % de errores contra un umbral de 5 %)
 y Argo Rollouts revirtio solo.
 
 Fix: FAULT_RATE solo tiene efecto si ALLOW_FAULT_INJECTION=true.
 Test de regresion: test/fault-rate-guard.test.ts (falla sin el fix).
+Los tests que dependian del contrato anterior (routes, metrics) pasan ahora
+ALLOW_FAULT_INJECTION=true explicitamente: el cambio de contrato queda a la vista
+en el diff, no escondido.
 Guardrail nuevo: policy/fault-injection.rego prohibe FAULT_RATE > 0 en cualquier
 manifiesto desplegable, asi este manifiesto ya no puede ni mergearse.
 
@@ -214,7 +256,12 @@ Verificado con: npm run verify
 MSG
 ok "Commit creado (convencional: lo va a tomar release-notes)."
 
-run git push -u origin "$BRANCH"
+if ! git push -u origin "$BRANCH"; then
+  echo ""
+  bad "No pude pushear '$BRANCH'."
+  note "Si quedo una rama vieja de un ensayo anterior:  bash demo/reset.sh"
+  exit 1
+fi
 
 PR_BODY="$(mktemp)"
 cat > "$PR_BODY" <<'MSG'
@@ -222,7 +269,7 @@ cat > "$PR_BODY" <<'MSG'
 
 ### Impacto
 La revision canary devolvia 500 en ~3 de cada 10 requests a `/orders`. Con 20 % del trafico,
-el `AnalysisTemplate` **error-rate** midio 29,8 % contra un umbral de 5 % y **Argo Rollouts
+el `AnalysisTemplate` **error-rate** midio 26,3 % contra un umbral de 5 % y **Argo Rollouts
 abortó el rollout y volvio a la revision estable**. Ningun humano intervino.
 
 ### Causa raiz
@@ -230,7 +277,7 @@ abortó el rollout y volvio a la revision estable**. Ningun humano intervino.
 una rama de demo puede degradar el servicio en cualquier entorno.
 
 ### Evidencia
-- `error-rate` del canary: **0,298** (umbral 0,05) → `Failed`
+- `error-rate` del canary: **0,263** (umbral 0,05) → `Failed`
 - `latency-p95`: normal → no era un problema de performance
 - Manifiesto: `deploy/k8s/rollout.yaml` con `FAULT_RATE: "0.3"`
 
@@ -240,6 +287,10 @@ vale 0 siempre.
 
 ### Test de regresion
 `test/fault-rate-guard.test.ts`: falla sin el fix, pasa con el fix.
+
+Y los tests que dependian del contrato anterior (`test/routes.test.ts`,
+`test/metrics.test.ts`) ahora piden `ALLOW_FAULT_INJECTION=true` explicitamente. El cambio de
+contrato esta en el diff, no escondido detras de un test borrado.
 
 ### Guardrail nuevo
 `policy/fault-injection.rego` **prohibe** `FAULT_RATE > 0` y `ALLOW_FAULT_INJECTION=true` en

@@ -18,9 +18,18 @@ make install-rollouts-plugin         # el Acto 2 se ve MUCHO mejor con el plugin
 make up
 make rollout-status                  # tiene que decir Healthy, 5/5
 
-# Entre ensayos
+# Entre ensayos completos
 bash demo/reset.sh
 ```
+
+**Los tres actos se encadenan: NO hace falta resetear entre uno y otro.** Cada acto limpia solo
+los restos del anterior y vuelve a `main` antes de empezar (lo avisa en pantalla). `demo/reset.sh`
+es para **repetir la demo desde cero**, no para pasar de un acto al siguiente.
+
+Y dos cosas que `reset.sh` **no** hace, a propósito: no descarta cambios sin commitear que no sean
+de la demo, y no borra una rama de demo que tenga commits tuyos. En los dos casos aborta y te dice
+cómo salvarlos. (Las dos protecciones existen porque, verificando este repo, el reset se comió dos
+arreglos sin commitear.)
 
 **La demo necesita red.** Argo CD sincroniza desde tu repo en GitHub (eso es el punto del ADR-003:
 el único camino al cluster es un commit). Si te quedás sin red, los tres planes B funcionan offline.
@@ -93,16 +102,36 @@ Dos terminales en pantalla:
 **Si `arch:check` no corre** (npm roto, node de otra versión, lo que sea): mostrá el **run fallido
 de GitHub Actions ya grabado**.
 
-Link del run fallido: `<PEGAR_LINK_AQUI>`
+Link del run fallido (real, grabado el 2026-10-27):
+**https://github.com/falconcr/architecture-harness-starter/actions/runs/40566426718**
+
+PR que lo produjo: **https://github.com/falconcr/architecture-harness-starter/pull/1**
+
+Lo que se ve ahi, y que vale la pena senalar en escena:
+
+| Job | Resultado |
+|---|---|
+| `1 · lint [determinista]` | pass |
+| `2 · tests [determinista]` | pass |
+| **`3 · arch:check [determinista]`** | **fail** — `error adr-001-domain-is-pure: src/domain/order.ts → src/infrastructure/db.ts` |
+| `4 · conftest` … `7 · firma` | skipped (no se gastan recursos si la arquitectura ya falla) |
+| `8 · review de arquitectura por IA` | skipped — **a proposito**: si la herramienta ya dijo exactamente que esta mal, no gastamos tokens en repetirlo con menos precision |
+| `9 · aprobacion humana` | fail — el merge queda bloqueado |
 
 Cómo regenerarlo (hacelo **antes** de la charla, no en vivo):
 
 ```bash
 bash demo/act1-arch-violation.sh         # deja la rama con la violación
-git push -u origin demo/acto-1-violacion
+
+# --force-with-lease porque esta rama se sobreescribe en cada regeneración:
+# el acto la recrea desde el main del momento, así que su historia cambia.
+# Es la única rama del repo donde el force push es correcto, y por eso el hook
+# guard-git-push.sh lo permite: no apunta a main.
+git push -u --force-with-lease origin demo/acto-1-violacion
+
 gh pr create --title "feat: persistir pedidos" --body "Guarda los pedidos en la base de datos" \
-  --base main --head demo/acto-1-violacion
-gh run list --branch demo/acto-1-violacion --limit 1      # copiá el link acá arriba
+  --base main --head demo/acto-1-violacion            # si el PR ya existe, se reusa
+gh run list --branch demo/acto-1-violacion --limit 1   # copiá el link acá arriba
 ```
 
 Abrilo en una pestaña del navegador **antes de empezar**. El job `3 · arch:check [determinista]`
@@ -163,10 +192,21 @@ PR que dejó `architect-reviewer` es la frutilla: podés mostrar los dos lados d
 > El valor no está en el dashboard. Está en que **nadie necesite mirar el dashboard** para que el
 > rollback ocurra.
 >
+> *(mostrar `make analysis`)*
+>
+> Y acá está el mensaje exacto, para que no parezca magia:
+> `RolloutAborted: Metric "error-rate" assessed Failed due to failed (2) > failureLimit (1)`.
+> Dos mediciones por encima del umbral, y el límite era una.
+>
 > *(Terminal B: canary-analyst)*
 >
-> Ahora sí, el agente. Error rate del canary: 0,30 contra un umbral de 0,05. Latencia normal, así
-> que no era performance. Veredicto: el gate decidió bien.
+> Ahora sí, el agente. Error rate del canary: **0,263** contra un umbral de 0,05. Latencia normal
+> (4,8 ms), así que no era performance. Veredicto: el gate decidió bien.
+>
+> Y un detalle honesto: `FAULT_RATE` es 0,3 pero el gate midió 0,263, porque `/healthz` y
+> `/readyz` del canary **nunca** fallan y diluyen un poco el promedio. Está bien que sea así: si
+> la salud también fallara, el pod moriría por readiness y el canary se caería por otra razón, no
+> por el análisis de métricas, que es lo que queremos mostrar.
 >
 > Y `canary-analyst` **no puede promover ni abortar**. Llega después del rollback, no en lugar del
 > rollback. Su trabajo es que yo entienda en treinta segundos lo que pasó, no decidir.
@@ -270,7 +310,14 @@ npm run verify                      # verde
 gh pr create --base main --head demo/acto-3-fix --fill
 ```
 
-PR de ejemplo ya abierto: `<PEGAR_LINK_AQUI>`
+PR de ejemplo ya abierto (real): **https://github.com/falconcr/architecture-harness-starter/pull/5**
+(sale de `demo/acto-3-fix`, que es una rama **permanente**: `demo/reset.sh` no la toca).
+
+Ojo con esto si armás tu propio repo: el PR del plan B tiene que salir de una rama permanente.
+Si lo abrís desde `fix/fault-rate-guard` —la rama que crea el acto en vivo— el primer
+`demo/reset.sh` borra esa rama en `origin` y **cierra tu PR de plan B**. Pasó mientras se
+verificaba este repo; de ahí la separación entre ramas efímeras y ramas de plan B en
+[`demo/reset.sh`](reset.sh).
 
 Descripción lista para pegar (si `gh` falla y lo tenés que crear desde la web):
 
@@ -279,7 +326,7 @@ Descripción lista para pegar (si `gh` falla y lo tenés que crear desde la web)
 
 ### Impacto
 La revisión canary devolvía 500 en ~3 de cada 10 requests a `/orders`. Con 20 % del tráfico, el
-`AnalysisTemplate` **error-rate** midió 29,8 % contra un umbral de 5 % y **Argo Rollouts abortó el
+`AnalysisTemplate` **error-rate** midió 26,3 % contra un umbral de 5 % y **Argo Rollouts abortó el
 rollout y volvió a la revisión estable**. Ningún humano intervino.
 
 ### Causa raíz
@@ -287,7 +334,7 @@ rollout y volvió a la revisión estable**. Ningún humano intervino.
 una rama de demo puede degradar el servicio en cualquier entorno.
 
 ### Evidencia
-- `error-rate` del canary: **0,298** (umbral 0,05) → `Failed`
+- `error-rate` del canary: **0,263** (umbral 0,05) → `Failed`
 - `latency-p95`: normal → no era un problema de performance
 - Manifiesto: `deploy/k8s/rollout.yaml` con `FAULT_RATE: "0.3"`
 

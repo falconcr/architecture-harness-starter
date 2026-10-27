@@ -339,19 +339,40 @@ jobs:
     permissions:
       contents: read             # leer el codigo
       pull-requests: write       # comentar (NO aprobar: eso requiere otro permiso y revision humana)
+    env:
+      # Sin la API key el job se salta limpio en vez de fallar en rojo: quien
+      # forkee el repo sin configurar el secreto no tiene por que ver un error.
+      HAS_ANTHROPIC_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' }}
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
+      - name: aviso si no hay API key
+        if: env.HAS_ANTHROPIC_KEY != 'true'
+        run: |
+          {
+            echo "### 8 · review de arquitectura por IA: saltado"
+            echo ""
+            echo "No hay secreto \`ANTHROPIC_API_KEY\` configurado en este repositorio."
+            echo ""
+            echo "Para habilitarlo: \`gh secret set ANTHROPIC_API_KEY\`"
+            echo ""
+            echo "> Este gate es **asistido**, no determinista: su ausencia no bloquea el merge."
+            echo "> Los gates que deciden son los jobs 1 a 7, y esos ya corrieron."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "ai-review saltado: falta ANTHROPIC_API_KEY (no bloquea)."
+
       - name: diff del PR
         id: diff
+        if: env.HAS_ANTHROPIC_KEY == 'true'
         run: |
           git diff --stat "origin/${{ github.base_ref }}...HEAD" > diff-stat.txt
           echo "archivos tocados:"
           cat diff-stat.txt
 
       - name: architect-reviewer
+        if: env.HAS_ANTHROPIC_KEY == 'true'
         uses: anthropics/claude-code-action@v1
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

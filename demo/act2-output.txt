@@ -1,8 +1,66 @@
-# Plan B del Acto 2 - placeholder.
-# Este archivo se reemplaza con la salida REAL despues de correr el Acto 2:
+# ============================================================================
+# PLAN B del ACTO 2 - salida REAL de una corrida del 2026-10-27
 #
+# Como se regenera (despues de una corrida buena del Acto 2):
 #   {
-#     echo "# Salida real del Acto 2 - $(date -I)"; echo
-#     kubectl --context kind-harness argo rollouts get rollout orders -n orders
+#     kubectl argo rollouts get rollout orders -n orders --context kind-harness
 #     echo; make analysis
 #   } > demo/act2-output.txt
+# ============================================================================
+
+$ kubectl argo rollouts get rollout orders -n orders --context kind-harness
+
+Name:            orders
+Namespace:       orders
+Status:          ✖ Degraded
+Message:         RolloutAborted: Rollout aborted update to revision 2: Metric "error-rate" assessed Failed due to failed (2) > failureLimit (1)
+Strategy:        Canary
+  Step:          0/5
+  SetWeight:     0
+  ActualWeight:  0
+Images:          orders:v1 (stable)
+Replicas:
+  Desired:       5
+  Current:       5
+  Updated:       0
+  Ready:         5
+  Available:     5
+
+NAME                               KIND         STATUS        AGE    INFO
+⟳ orders                           Rollout      ✖ Degraded    4m50s  
+├──# revision:2                                                      
+│  ├──⧉ orders-96874d78b           ReplicaSet   • ScaledDown  77s    canary
+│  └──α orders-96874d78b-2-1       AnalysisRun  ✖ Failed      74s    ✔ 2,✖ 2
+└──# revision:1                                                      
+   └──⧉ orders-87f76b64c           ReplicaSet   ✔ Healthy     4m50s  stable
+      ├──□ orders-87f76b64c-cttzh  Pod          ✔ Running     4m50s  ready:1/1
+      ├──□ orders-87f76b64c-h2h88  Pod          ✔ Running     4m50s  ready:1/1
+      ├──□ orders-87f76b64c-s4p9s  Pod          ✔ Running     4m50s  ready:1/1
+      ├──□ orders-87f76b64c-sm445  Pod          ✔ Running     4m50s  ready:1/1
+      └──□ orders-87f76b64c-gksc7  Pod          ✔ Running     24s    ready:1/1
+
+# ----------------------------------------------------------------------------
+# Lo que vio el gate: cada metrica, su umbral y los valores medidos.
+# ----------------------------------------------------------------------------
+
+$ make analysis
+
+NAME                   STATUS   AGE
+orders-96874d78b-2-1   Failed   74s
+
+--- analysisrun.argoproj.io/orders-96874d78b-2-1 ---
+error-rate: phase=Failed exitosas= fallidas=2
+    valor=[0.2631908534646454] fase=Failed
+    valor=[0.2577715697889956] fase=Failed
+latency-p95: phase=Successful exitosas=2 fallidas=
+    valor=[0.004803764394818734] fase=Successful
+    valor=[0.00480571128749663] fase=Successful
+
+# ----------------------------------------------------------------------------
+# Lectura:
+#   error-rate  : 0.263 y 0.258  contra umbral < 0.05  -> FALLO (2 fallidas > failureLimit 1)
+#   latency-p95 : 0.0048 s       contra umbral < 0.3   -> paso (no era performance)
+#
+# Argo Rollouts abortó el rollout de la revision 2 y volvio a la estable (revision 1).
+# Nadie aprobo ese rollback.
+# ----------------------------------------------------------------------------

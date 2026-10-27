@@ -4,15 +4,54 @@
 # No borra el cluster (eso es `make down`): solo deshace lo que hacen los actos.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-DEMO_BRANCHES=(
+# Ramas EFIMERAS: las crean los actos en vivo y se borran en cada reset,
+# local y en origin (si no, el siguiente push falla por non-fast-forward).
+EPHEMERAL_BRANCHES=(
   "demo/acto-1-violacion"
   "demo/acto-2-canary"
   "fix/fault-rate-guard"
 )
 
+# Ramas PERMANENTES de plan B: NO se tocan nunca. Son las que sostienen la demo
+# si algo falla en escena (el run fallido grabado del Acto 1 y el PR del Acto 3).
+#   demo/acto-1-violacion  en origin  -> PR con el run de CI fallido
+#   demo/acto-3-fix        en origin  -> el fix listo para abrir el PR
+PRESERVE_ON_ORIGIN=(
+  "demo/acto-1-violacion"
+  "demo/acto-3-fix"
+)
+
+preserved_on_origin() {
+  local branch="$1"
+  for keep in "${PRESERVE_ON_ORIGIN[@]}"; do
+    [[ "$branch" == "$keep" ]] && return 0
+  done
+  return 1
+}
+
 banner "RESET de la demo"
 
 say "1. Volver a main y descartar los cambios de los actos"
+# `git reset --hard` es destructivo. Antes de tirar nada, comprobamos que lo
+# unico sucio sean los archivos que tocan los actos. Si hay trabajo de verdad
+# sin commitear, abortamos: resetear la demo no vale perder el trabajo de nadie.
+# (Me pasó verificando este repo: reset.sh se comio un arreglo sin commitear.)
+unexpected=()
+while IFS= read -r line; do
+  [[ -z "$line" ]] && continue
+  is_act_leftover "${line:3}" || unexpected+=("$line")
+done <<<"$(git status --porcelain)"
+
+if [[ ${#unexpected[@]} -gt 0 ]]; then
+  bad "Hay cambios sin commitear que NO son de la demo:"
+  printf '%s\n' "${unexpected[@]}"
+  echo ""
+  note "reset.sh no los va a descartar. Commiteá o guardá eso primero:"
+  note "    git stash -u        # para recuperarlo despues con git stash pop"
+  note "y volvé a correr: bash demo/reset.sh"
+  exit 1
+fi
+
 git switch main 2>/dev/null || git switch -c main
 run git reset --hard HEAD
 run git clean -fd src/infrastructure/db.ts test/fault-rate-guard.test.ts policy/fault-injection.rego 2>/dev/null || true
@@ -20,16 +59,47 @@ run git clean -fd src/infrastructure/db.ts test/fault-rate-guard.test.ts policy/
 rm -f src/infrastructure/db.ts test/fault-rate-guard.test.ts policy/fault-injection.rego
 git checkout -- . 2>/dev/null || true
 
-say "2. Borrar las ramas de demo (local y remoto)"
-for branch in "${DEMO_BRANCHES[@]}"; do
+say "2. Borrar las ramas efimeras de la demo"
+# Commits que los actos crean ellos mismos; borrarlos es correcto.
+# Cualquier otro commit en una rama de demo es trabajo de una persona.
+ACT_COMMIT_REGEX='^(feat: nueva version de orders|feat: persistir pedidos|fix: FAULT_RATE requiere habilitacion explicita)'
+
+for branch in "${EPHEMERAL_BRANCHES[@]}"; do
   if git show-ref --verify --quiet "refs/heads/$branch"; then
-    git branch -D "$branch" && note "borrada local: $branch"
+    # `git branch -D` descarta commits SIN AVISAR. Me comio dos arreglos
+    # verificando este repo (commiteados estando parado en una rama de demo).
+    # Antes de borrar, revisamos que todo lo que hay sea de los actos.
+    foreign=()
+    while IFS= read -r subject; do
+      [[ -z "$subject" ]] && continue
+      [[ "$subject" =~ $ACT_COMMIT_REGEX ]] || foreign+=("$subject")
+    done <<<"$(git log --format='%s' "main..$branch" 2>/dev/null)"
+
+    if [[ ${#foreign[@]} -gt 0 ]]; then
+      bad "La rama '$branch' tiene commits que NO son de la demo:"
+      git log --oneline "main..$branch" | sed 's/^/      /'
+      echo ""
+      note "No la voy a borrar. Si ese trabajo te importa:"
+      note "    git cherry-pick <hash>     # llevalo a main"
+      note "y si no te importa:"
+      note "    git branch -D $branch"
+      note "Despues volvé a correr: bash demo/reset.sh"
+      exit 1
+    fi
+
+    git branch -D "$branch" >/dev/null && note "borrada local: $branch"
   fi
+
+  if preserved_on_origin "$branch"; then
+    note "conservada en origin: $branch (es plan B: sostiene el run fallido grabado)"
+    continue
+  fi
+
   if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
     if git push origin --delete "$branch" >/dev/null 2>&1; then
       note "borrada en origin: $branch"
     else
-      warn "no pude borrar $branch en origin (borrala a mano si la necesitas limpia)"
+      warn "no pude borrar $branch en origin (borrala a mano antes de repetir el acto)"
     fi
   fi
 done
@@ -46,7 +116,7 @@ if $KUBECTL cluster-info >/dev/null 2>&1; then
   # Un Rollout abortado se queda en Degraded hasta que cambia el pod template o
   # se reinicia. Como el manifiesto ya es el sano, alcanza con reiniciarlo.
   if command -v kubectl-argo-rollouts >/dev/null 2>&1; then
-    run kubectl argo rollouts restart rollout orders -n "$APP_NAMESPACE" --context "$KUBE_CONTEXT" || true
+    run kubectl argo rollouts restart orders -n "$APP_NAMESPACE" --context "$KUBE_CONTEXT" || true
   else
     run $KUBECTL -n "$APP_NAMESPACE" delete pods -l app.kubernetes.io/name=orders --wait=false || true
   fi

@@ -55,7 +55,10 @@ MSG
 }
 
 # 1) Contexto explicito en el comando.
-explicit_context="$(grep -oE -- '--context[= ]+[^[:space:]]+' <<<"$command_line" | head -1 | sed -E 's/--context[= ]+//')"
+#    kubectl y argocd usan --context; helm usa --kube-context. Hay que mirar los dos:
+#    si solo mirabamos --context, `helm --kube-context prod upgrade` se colaba cuando
+#    el contexto activo resultaba ser el permitido.
+explicit_context="$(grep -oE -- '--(kube-)?context[= ]+[^[:space:]]+' <<<"$command_line" | head -1 | sed -E 's/--(kube-)?context[= ]+//')"
 if [[ -n "$explicit_context" ]]; then
   [[ "$explicit_context" == "$ALLOWED_CONTEXT" ]] && exit 0
   deny "$explicit_context (explicito en el comando)"
