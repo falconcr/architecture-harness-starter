@@ -501,10 +501,10 @@ todo esto funciona de verdad:
 |---|---|
 | Pipeline verde en `main`, con firma cosign keyless verificada | [Actions](https://github.com/falconcr/architecture-harness-starter/actions) |
 | **Run fallido grabado** del Acto 1 (`arch:check` en rojo) | [run 40566426718](https://github.com/falconcr/architecture-harness-starter/actions/runs/40566426718) · [PR #1](https://github.com/falconcr/architecture-harness-starter/pull/1) |
-| **PR del Acto 3** (el fix + test de regresión + guardrail nuevo) | [PR #4](https://github.com/falconcr/architecture-harness-starter/pull/5) |
+| **PR del Acto 3** (el fix + test de regresión + guardrail nuevo) | [PR #5](https://github.com/falconcr/architecture-harness-starter/pull/5) |
 | Salida real del canary fallando | [`demo/act2-output.txt`](demo/act2-output.txt) |
 
-Los PRs #1 y #4 están **abiertos a propósito**: son el plan B de la demo. No los mergees ni los
+Los PRs #1 y #5 están **abiertos a propósito**: son el plan B de la demo. No los mergees ni los
 cierres si vas a dar la charla con este repo.
 
 Para tu propio fork: `gh repo create architecture-harness-starter --public --source=. --push` y
