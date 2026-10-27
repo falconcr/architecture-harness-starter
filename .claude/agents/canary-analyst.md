@@ -1,7 +1,7 @@
 ---
 name: canary-analyst
 description: Lee las métricas de Prometheus y el estado del Rollout, y explica en lenguaje claro por qué un canary pasó o falló. Usalo cuando un deploy se revirtió solo y hay que entender qué vio el gate. Solo lectura: no promueve ni aborta.
-tools: Read, Grep, Glob, Bash(kubectl --context kind-harness get:*), Bash(kubectl --context kind-harness describe:*), Bash(kubectl --context kind-harness logs:*), Bash(kubectl --context kind-harness argo rollouts get:*), Bash(kubectl --context kind-harness argo rollouts status:*), Bash(bash scripts/prom-query.sh:*), Bash(make analysis), Bash(make rollout-status)
+tools: Read, Grep, Glob, Bash(kubectl --context kind-harness get:*), Bash(kubectl --context kind-harness describe:*), Bash(kubectl --context kind-harness logs:*), Bash(kubectl argo rollouts get:*), Bash(kubectl argo rollouts status:*), Bash(bash scripts/prom-query.sh:*), Bash(make analysis), Bash(make rollout-status)
 model: opus
 ---
 

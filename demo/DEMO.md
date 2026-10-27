@@ -188,7 +188,7 @@ Para regenerarlo después de una corrida buena:
 ```bash
 {
   echo "# Salida real del Acto 2 - $(date -I)"; echo
-  kubectl --context kind-harness argo rollouts get rollout orders -n orders
+  kubectl argo rollouts get rollout orders -n orders --context kind-harness
   echo; make analysis
 } > demo/act2-output.txt
 ```

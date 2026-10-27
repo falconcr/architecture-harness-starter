@@ -49,7 +49,7 @@ metadata:
   labels:
     app.kubernetes.io/name: prometheus
     app.kubernetes.io/part-of: harness-starter
-    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/managed-by: make-bootstrap
 data:
   prometheus.yml: |
     global:
@@ -94,7 +94,7 @@ metadata:
   labels:
     app.kubernetes.io/name: prometheus
     app.kubernetes.io/part-of: harness-starter
-    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/managed-by: make-bootstrap
 spec:
   replicas: 1
   selector:
@@ -105,7 +105,7 @@ spec:
       labels:
         app.kubernetes.io/name: prometheus
         app.kubernetes.io/part-of: harness-starter
-        app.kubernetes.io/managed-by: argocd
+        app.kubernetes.io/managed-by: make-bootstrap
     spec:
       serviceAccountName: prometheus
       securityContext:
@@ -165,7 +165,7 @@ metadata:
   labels:
     app.kubernetes.io/name: prometheus
     app.kubernetes.io/part-of: harness-starter
-    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/managed-by: make-bootstrap
 spec:
   type: ClusterIP
   selector:

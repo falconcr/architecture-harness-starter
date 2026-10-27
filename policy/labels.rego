@@ -40,14 +40,34 @@ deny contains msg if {
 	)
 }
 
-# managed-by tiene que decir la verdad: en este repo despliega Argo CD, no una persona
-# y mucho menos un agente (ADR-003).
+# managed-by tiene que decir la VERDAD sobre quien aplica el recurso.
+#
+# Solo dos sujetos pueden aplicar algo en este repo:
+#   - "argocd":         todo lo que es la aplicacion (deploy/k8s). Llega por commit.
+#   - "make-bootstrap": la infra que `make up` instala UNA vez antes de que Argo CD
+#                       exista (Prometheus). No es parte del ciclo de entrega.
+#
+# Lo que NO puede aparecer nunca: una persona o un agente (ADR-003). Si un recurso
+# dice "kubectl" o un nombre propio, alguien esta aplicando a mano.
+valid_managers := {"argocd", "make-bootstrap"}
+
 deny contains msg if {
 	labelled_kinds[input.kind]
 	value := input.metadata.labels["app.kubernetes.io/managed-by"]
-	value != "argocd"
+	not valid_managers[value]
 	msg := sprintf(
-		"%s/%s: app.kubernetes.io/managed-by es '%s'; en este repo todo lo aplica Argo CD ('argocd'), ningun agente ni persona hace kubectl apply (ADR-003).",
+		"%s/%s: app.kubernetes.io/managed-by es '%s'; solo valen 'argocd' (llega por commit) o 'make-bootstrap' (infra inicial de make up). Ningun agente ni persona aplica nada a mano (ADR-003).",
 		[input.kind, resource_name, value],
+	)
+}
+
+# Y lo que esta en deploy/k8s, que es lo que Argo CD sincroniza, tiene que decir argocd.
+deny contains msg if {
+	labelled_kinds[input.kind]
+	input.kind == "Rollout"
+	input.metadata.labels["app.kubernetes.io/managed-by"] != "argocd"
+	msg := sprintf(
+		"%s/%s: un Rollout lo despliega Argo CD por definicion; managed-by tiene que ser 'argocd'.",
+		[input.kind, resource_name],
 	)
 }

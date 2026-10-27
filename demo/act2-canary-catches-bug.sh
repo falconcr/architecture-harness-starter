@@ -80,10 +80,10 @@ echo ""
 if command -v kubectl-argo-rollouts >/dev/null 2>&1; then
   warn "Abriendo el watch. Salí con Ctrl+C cuando veas 'Degraded' / el rollback."
   if [[ "${DEMO_AUTO:-0}" == "1" ]]; then
-    timeout 300 kubectl --context "$KUBE_CONTEXT" argo rollouts get rollout orders \
-      -n "$APP_NAMESPACE" --watch 2>&1 | head -120 || true
+    timeout 300 kubectl argo rollouts get rollout orders \
+      -n "$APP_NAMESPACE" --context "$KUBE_CONTEXT" --watch 2>&1 | head -120 || true
   else
-    kubectl --context "$KUBE_CONTEXT" argo rollouts get rollout orders -n "$APP_NAMESPACE" --watch || true
+    kubectl argo rollouts get rollout orders -n "$APP_NAMESPACE" --context "$KUBE_CONTEXT" --watch || true
   fi
 else
   for _ in $(seq 1 30); do

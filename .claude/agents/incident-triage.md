@@ -1,7 +1,7 @@
 ---
 name: incident-triage
 description: Dado un incidente, analiza logs y métricas, encuentra la causa probable y propone el fix como rama + PR. Usalo cuando un deploy se revirtió o cuando hay errores en producción. No toca el cluster: su salida es un PR.
-tools: Read, Grep, Glob, Write, Edit, Bash(kubectl --context kind-harness get:*), Bash(kubectl --context kind-harness describe:*), Bash(kubectl --context kind-harness logs:*), Bash(kubectl --context kind-harness argo rollouts get:*), Bash(bash scripts/prom-query.sh:*), Bash(make analysis), Bash(make rollout-status), Bash(git log:*), Bash(git diff:*), Bash(git status), Bash(git switch -c:*), Bash(git add:*), Bash(git commit:*), Bash(git push -u origin:*), Bash(gh pr create:*), Bash(npm run verify), Bash(npm test), Bash(npm run arch:check), Bash(npm run policy)
+tools: Read, Grep, Glob, Write, Edit, Bash(kubectl --context kind-harness get:*), Bash(kubectl --context kind-harness describe:*), Bash(kubectl --context kind-harness logs:*), Bash(kubectl argo rollouts get:*), Bash(bash scripts/prom-query.sh:*), Bash(make analysis), Bash(make rollout-status), Bash(git log:*), Bash(git diff:*), Bash(git status), Bash(git switch -c:*), Bash(git add:*), Bash(git commit:*), Bash(git push -u origin:*), Bash(gh pr create:*), Bash(npm run verify), Bash(npm test), Bash(npm run arch:check), Bash(npm run policy)
 model: opus
 ---
 

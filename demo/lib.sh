@@ -57,9 +57,11 @@ require_cluster() {
   fi
 }
 
+# El plugin 'kubectl argo rollouts' NO acepta flags antes del nombre del plugin:
+# --context tiene que ir al final. Por eso no usa $KUBECTL.
 rollout_view() {
   if command -v kubectl-argo-rollouts >/dev/null 2>&1; then
-    $KUBECTL argo rollouts get rollout orders -n "$APP_NAMESPACE" "$@"
+    kubectl argo rollouts get rollout orders -n "$APP_NAMESPACE" --context "$KUBE_CONTEXT" "$@"
   else
     $KUBECTL -n "$APP_NAMESPACE" get rollout orders -o wide
     $KUBECTL -n "$APP_NAMESPACE" get pods -l app.kubernetes.io/name=orders --show-labels

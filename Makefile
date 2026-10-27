@@ -196,7 +196,8 @@ down: ## Destruye el cluster y todo lo que creamos
 .PHONY: rollout-status
 rollout-status: ## Estado del Rollout 'orders'
 	@if command -v kubectl-argo-rollouts >/dev/null 2>&1; then
-	  $(KUBECTL) argo rollouts get rollout orders -n $(APP_NAMESPACE)
+	  # Ojo: el plugin exige que --context vaya DESPUES de 'argo rollouts'.
+	  kubectl argo rollouts get rollout orders -n $(APP_NAMESPACE) --context $(KUBE_CONTEXT)
 	else
 	  echo "(sin plugin argo rollouts: mostrando el recurso crudo)"
 	  $(KUBECTL) -n $(APP_NAMESPACE) get rollout orders -o yaml | head -60
@@ -204,7 +205,7 @@ rollout-status: ## Estado del Rollout 'orders'
 
 .PHONY: rollout-watch
 rollout-watch: ## Sigue el Rollout en vivo (lo que se proyecta en el Acto 2)
-	@$(KUBECTL) argo rollouts get rollout orders -n $(APP_NAMESPACE) --watch
+	@kubectl argo rollouts get rollout orders -n $(APP_NAMESPACE) --context $(KUBE_CONTEXT) --watch
 
 .PHONY: analysis
 analysis: ## Muestra los AnalysisRun y por que pasaron o fallaron
