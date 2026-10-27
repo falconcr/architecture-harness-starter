@@ -113,10 +113,16 @@ Cómo regenerarlo (hacelo **antes** de la charla, no en vivo):
 
 ```bash
 bash demo/act1-arch-violation.sh         # deja la rama con la violación
-git push -u origin demo/acto-1-violacion
+
+# --force-with-lease porque esta rama se sobreescribe en cada regeneración:
+# el acto la recrea desde el main del momento, así que su historia cambia.
+# Es la única rama del repo donde el force push es correcto, y por eso el hook
+# guard-git-push.sh lo permite: no apunta a main.
+git push -u --force-with-lease origin demo/acto-1-violacion
+
 gh pr create --title "feat: persistir pedidos" --body "Guarda los pedidos en la base de datos" \
-  --base main --head demo/acto-1-violacion
-gh run list --branch demo/acto-1-violacion --limit 1      # copiá el link acá arriba
+  --base main --head demo/acto-1-violacion            # si el PR ya existe, se reusa
+gh run list --branch demo/acto-1-violacion --limit 1   # copiá el link acá arriba
 ```
 
 Abrilo en una pestaña del navegador **antes de empezar**. El job `3 · arch:check [determinista]`
