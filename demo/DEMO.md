@@ -93,7 +93,21 @@ Dos terminales en pantalla:
 **Si `arch:check` no corre** (npm roto, node de otra versión, lo que sea): mostrá el **run fallido
 de GitHub Actions ya grabado**.
 
-Link del run fallido: `<PEGAR_LINK_AQUI>`
+Link del run fallido (real, grabado el 2026-10-27):
+**https://github.com/falconcr/architecture-harness-starter/actions/runs/40566426718**
+
+PR que lo produjo: **https://github.com/falconcr/architecture-harness-starter/pull/1**
+
+Lo que se ve ahi, y que vale la pena senalar en escena:
+
+| Job | Resultado |
+|---|---|
+| `1 · lint [determinista]` | pass |
+| `2 · tests [determinista]` | pass |
+| **`3 · arch:check [determinista]`** | **fail** — `error adr-001-domain-is-pure: src/domain/order.ts → src/infrastructure/db.ts` |
+| `4 · conftest` … `7 · firma` | skipped (no se gastan recursos si la arquitectura ya falla) |
+| `8 · review de arquitectura por IA` | skipped — **a proposito**: si la herramienta ya dijo exactamente que esta mal, no gastamos tokens en repetirlo con menos precision |
+| `9 · aprobacion humana` | fail — el merge queda bloqueado |
 
 Cómo regenerarlo (hacelo **antes** de la charla, no en vivo):
 
@@ -281,7 +295,10 @@ npm run verify                      # verde
 gh pr create --base main --head demo/acto-3-fix --fill
 ```
 
-PR de ejemplo ya abierto: `<PEGAR_LINK_AQUI>`
+PR de ejemplo ya abierto (real): **https://github.com/falconcr/architecture-harness-starter/pull/4**
+
+La rama permanente `demo/acto-3-fix` tiene ese mismo fix ya commiteado y **el reset no la borra**,
+asi que siempre podes abrir el PR de nuevo desde ahi.
 
 Descripción lista para pegar (si `gh` falla y lo tenés que crear desde la web):
 

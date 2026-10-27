@@ -283,7 +283,22 @@ Lo que importa de esa configuración:
 - **`ai-review` no está en `required_status_checks`.** A propósito. Un agente no bloquea un merge;
   tampoco lo habilita.
 - **`required_approving_review_count: 1`.** Una persona aprueba. Siempre.
-- **`enforce_admins: true`.** Si los admins pueden saltearlo, el gate es decorativo.
+- **`enforce_admins`.** En tu repo real: **`true`**. Si los admins pueden saltear el gate, el
+  gate es decorativo.
+
+  En **este** repo de demo queda en `false`, y conviene decir por qué en voz alta: con un solo
+  colaborador, GitHub no te deja aprobar tu propio PR, así que `enforce_admins: true` +
+  `required_approving_review_count: 1` hace que **nada se pueda mergear nunca**, ni siquiera por
+  vos. Eso no es seguridad: es un repo tapiado. En cuanto haya una segunda persona en el equipo,
+  subilo a `true`:
+
+  ```bash
+  gh api -X PATCH "repos/{owner}/{repo}/branches/main/protection/enforce_admins"
+  ```
+
+  Es el ejemplo más limpio de algo que vale para todo el harness: **un gate que no se puede
+  cumplir se termina desactivando**, y un gate desactivado es peor que no tenerlo, porque genera
+  la sensación de estar protegido.
 - **`allow_force_pushes: false`.** Sin esto, la historia es negociable.
 
 El único secreto que hay que configurar:
@@ -470,6 +485,26 @@ nueva, **convertí ese error en una regla de CI antes de mergear el fix**. Es la
 esta lista que mejora el harness con el tiempo en vez de dejarlo envejecer.
 
 Para medir dónde estás y qué sigue: [`HARNESS-CHECKLIST.md`](HARNESS-CHECKLIST.md).
+
+---
+
+## Lo que ya está listo en este repo
+
+Si clonaste este repo tal cual (no un fork tuyo), esto ya existe y sirve como referencia de que
+todo esto funciona de verdad:
+
+| Qué | Dónde |
+|---|---|
+| Pipeline verde en `main`, con firma cosign keyless verificada | [Actions](https://github.com/falconcr/architecture-harness-starter/actions) |
+| **Run fallido grabado** del Acto 1 (`arch:check` en rojo) | [run 40566426718](https://github.com/falconcr/architecture-harness-starter/actions/runs/40566426718) · [PR #1](https://github.com/falconcr/architecture-harness-starter/pull/1) |
+| **PR del Acto 3** (el fix + test de regresión + guardrail nuevo) | [PR #4](https://github.com/falconcr/architecture-harness-starter/pull/4) |
+| Salida real del canary fallando | [`demo/act2-output.txt`](demo/act2-output.txt) |
+
+Los PRs #1 y #4 están **abiertos a propósito**: son el plan B de la demo. No los mergees ni los
+cierres si vas a dar la charla con este repo.
+
+Para tu propio fork: `gh repo create architecture-harness-starter --public --source=. --push` y
+después seguí [`demo/DEMO.md`](demo/DEMO.md), que explica cómo regenerar los dos.
 
 ---
 
