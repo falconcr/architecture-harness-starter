@@ -32,6 +32,26 @@ preserved_on_origin() {
 banner "RESET de la demo"
 
 say "1. Volver a main y descartar los cambios de los actos"
+# `git reset --hard` es destructivo. Antes de tirar nada, comprobamos que lo
+# unico sucio sean los archivos que tocan los actos. Si hay trabajo de verdad
+# sin commitear, abortamos: resetear la demo no vale perder el trabajo de nadie.
+# (Me pasó verificando este repo: reset.sh se comio un arreglo sin commitear.)
+unexpected=()
+while IFS= read -r line; do
+  [[ -z "$line" ]] && continue
+  is_act_leftover "${line:3}" || unexpected+=("$line")
+done <<<"$(git status --porcelain)"
+
+if [[ ${#unexpected[@]} -gt 0 ]]; then
+  bad "Hay cambios sin commitear que NO son de la demo:"
+  printf '%s\n' "${unexpected[@]}"
+  echo ""
+  note "reset.sh no los va a descartar. Commiteá o guardá eso primero:"
+  note "    git stash -u        # para recuperarlo despues con git stash pop"
+  note "y volvé a correr: bash demo/reset.sh"
+  exit 1
+fi
+
 git switch main 2>/dev/null || git switch -c main
 run git reset --hard HEAD
 run git clean -fd src/infrastructure/db.ts test/fault-rate-guard.test.ts policy/fault-injection.rego 2>/dev/null || true
