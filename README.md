@@ -307,6 +307,10 @@ El único secreto que hay que configurar:
 gh secret set ANTHROPIC_API_KEY     # solo habilita comentar en PRs
 ```
 
+Si **no** lo configurás, el job `8 · review de arquitectura por IA` se salta limpio y deja una
+nota en el resumen del run. El pipeline sigue verde: el gate asistido no es el que decide. Esa es
+la propiedad que queremos, y se puede comprobar mirando cualquier PR del repo.
+
 ### Firma con llave (si no podés usar keyless)
 
 El pipeline firma con **cosign keyless**: la identidad viene del token OIDC de GitHub Actions y la
