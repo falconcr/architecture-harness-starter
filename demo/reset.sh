@@ -71,7 +71,7 @@ if $KUBECTL cluster-info >/dev/null 2>&1; then
   # Un Rollout abortado se queda en Degraded hasta que cambia el pod template o
   # se reinicia. Como el manifiesto ya es el sano, alcanza con reiniciarlo.
   if command -v kubectl-argo-rollouts >/dev/null 2>&1; then
-    run kubectl argo rollouts restart rollout orders -n "$APP_NAMESPACE" --context "$KUBE_CONTEXT" || true
+    run kubectl argo rollouts restart orders -n "$APP_NAMESPACE" --context "$KUBE_CONTEXT" || true
   else
     run $KUBECTL -n "$APP_NAMESPACE" delete pods -l app.kubernetes.io/name=orders --wait=false || true
   fi
