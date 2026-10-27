@@ -70,7 +70,9 @@ require_clean_tree() {
   dirty="$(git status --porcelain)"
   [[ -z "$dirty" ]] && return 0
 
-  while read -r line; do
+  # IFS= es obligatorio: sin eso `read` recorta el espacio inicial de
+  # `git status --porcelain` (" M archivo") y el recorte del path se desalinea.
+  while IFS= read -r line; do
     [[ -z "$line" ]] && continue
     local path="${line:3}"
     is_act_leftover "$path" || unexpected+=("$line")
