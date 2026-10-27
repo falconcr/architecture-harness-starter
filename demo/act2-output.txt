@@ -1,0 +1,8 @@
+# Plan B del Acto 2 - placeholder.
+# Este archivo se reemplaza con la salida REAL despues de correr el Acto 2:
+#
+#   {
+#     echo "# Salida real del Acto 2 - $(date -I)"; echo
+#     kubectl --context kind-harness argo rollouts get rollout orders -n orders
+#     echo; make analysis
+#   } > demo/act2-output.txt

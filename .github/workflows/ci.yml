@@ -1,0 +1,445 @@
+# =============================================================================
+# Pipeline de harness engineering.
+#
+#   Los agentes proponen, los gates deterministas deciden,
+#   los humanos son duenos de lo irreversible.
+#
+# Cada job esta etiquetado con el tipo de gate que representa:
+#
+#   [GATE DETERMINISTA]  una herramienta decide. Bloquea el merge. No negocia.
+#   [ASISTIDO POR IA]    un agente opina. Comenta. NUNCA bloquea ni aprueba.
+#   [GATE HUMANO]        una persona decide. Lo irreversible es suyo.
+#
+# Orden (cada capa solo corre si la anterior paso):
+#   1. lint        [DETERMINISTA]
+#   2. tests       [DETERMINISTA]
+#   3. arch:check  [DETERMINISTA]  <- aqui se verifican ADR-001 y ADR-002
+#   4. conftest    [DETERMINISTA]  <- politicas OPA sobre los manifiestos
+#   5. build       [DETERMINISTA]
+#   6. sbom        [DETERMINISTA]  <- syft
+#   7. sign        [DETERMINISTA]  <- cosign keyless (OIDC, sin llave privada)
+#   8. ai-review   [ASISTIDO]      <- subagente architect-reviewer, solo comenta
+#   9. approval    [HUMANO]        <- branch protection (ver README)
+#
+# Permisos: minimos por job. El unico secreto permanente del repo es
+# ANTHROPIC_API_KEY, y solo habilita comentar en un PR (ADR-003).
+# =============================================================================
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Default deliberadamente minimo: cada job pide lo que necesita y nada mas.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22.12.0"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. LINT  [GATE DETERMINISTA]
+  # ---------------------------------------------------------------------------
+  lint:
+    name: "1 · lint [determinista]"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - name: typecheck
+        run: npm run typecheck
+
+  # ---------------------------------------------------------------------------
+  # 2. TESTS  [GATE DETERMINISTA]
+  # ---------------------------------------------------------------------------
+  tests:
+    name: "2 · tests [determinista]"
+    needs: [lint]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+      # Los guardrails tambien se testean: un hook roto es peor que no tenerlo (ADR-003).
+      - name: hooks de .claude/ (guardrails)
+        run: make test-hooks
+
+  # ---------------------------------------------------------------------------
+  # 3. ARCH:CHECK  [GATE DETERMINISTA]
+  #    Aqui los ADRs dejan de ser documentos y se vuelven ejecutables.
+  #    Si este job falla, el PR no entra. No importa que tan razonable parezca
+  #    el cambio ni que tan bien lo explique un agente.
+  # ---------------------------------------------------------------------------
+  arch-check:
+    name: "3 · arch:check [determinista]"
+    needs: [tests]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+
+      - name: fitness functions (ADR-001, ADR-002)
+        run: npm run arch:check
+
+      # Si alguien agrega un ADR sin seccion "Verificacion", el ADR es una opinion.
+      - name: todo ADR tiene seccion de Verificacion
+        run: |
+          fail=0
+          for adr in docs/adr/*.md; do
+            if ! grep -qE '^## Verificaci' "$adr"; then
+              echo "::error file=$adr::este ADR no tiene seccion '## Verificacion'"
+              fail=1
+            fi
+          done
+          exit $fail
+
+  # ---------------------------------------------------------------------------
+  # 4. CONFTEST  [GATE DETERMINISTA]
+  #    Policy-as-code sobre deploy/k8s: sin :latest, con limits, sin privileged,
+  #    con labels obligatorios.
+  # ---------------------------------------------------------------------------
+  conftest:
+    name: "4 · conftest [determinista]"
+    needs: [arch-check]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: instalar conftest
+        env:
+          CONFTEST_VERSION: 0.56.0
+        run: |
+          curl -fsSL -o conftest.tar.gz \
+            "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz"
+          tar xzf conftest.tar.gz conftest
+          sudo mv conftest /usr/local/bin/
+          conftest --version
+
+      - name: politicas sobre deploy/k8s
+        run: conftest test --policy policy --all-namespaces deploy/k8s
+
+      - name: politicas sobre deploy/monitoring
+        run: conftest test --policy policy --all-namespaces deploy/monitoring
+
+  # ---------------------------------------------------------------------------
+  # 5. BUILD  [GATE DETERMINISTA]
+  #    En PRs: solo construye (no publica: un PR de un fork no debe poder
+  #    escribir en el registry). En main: publica a ghcr.io con el GITHUB_TOKEN
+  #    efimero del job, sin ningun secreto permanente.
+  # ---------------------------------------------------------------------------
+  build:
+    name: "5 · build de imagen [determinista]"
+    needs: [conftest]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+      tag: ${{ steps.meta.outputs.tag }}
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - name: nombre de imagen y tag inmutable (nunca :latest, lo prohibe policy/kubernetes.rego)
+        id: meta
+        run: |
+          # ghcr.io solo acepta minusculas y github.repository puede traer mayusculas.
+          image="ghcr.io/$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')/orders"
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+          echo "tag=sha-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
+      - name: login a ghcr.io (solo en main)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}   # efimero, expira con el job
+
+      - name: build y push
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          tags: ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}
+          provenance: true
+          sbom: false            # el SBOM lo generamos con syft en el job siguiente
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: exportar la imagen para los jobs siguientes (PRs, sin registry)
+        if: github.event_name == 'pull_request'
+        env:
+          REF: ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}
+        run: |
+          docker buildx build --load -t "$REF" .
+          docker save "$REF" -o image.tar
+
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'pull_request'
+        with:
+          name: image
+          path: image.tar
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # 6. SBOM  [GATE DETERMINISTA]
+  #    Sin SBOM no hay forma de responder "estoy afectado?" cuando salga el
+  #    proximo CVE. El SBOM queda como artifact del run.
+  # ---------------------------------------------------------------------------
+  sbom:
+    name: "6 · SBOM (syft) [determinista]"
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        if: github.event_name == 'pull_request'
+        with:
+          name: image
+
+      - name: cargar la imagen (PRs)
+        if: github.event_name == 'pull_request'
+        run: docker load -i image.tar
+
+      - name: login a ghcr.io (main)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: generar SBOM con syft
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ needs.build.outputs.image }}:${{ needs.build.outputs.tag }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+          upload-artifact: false
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.spdx.json
+          retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # 7. FIRMA  [GATE DETERMINISTA]
+  #    cosign KEYLESS: la identidad viene del token OIDC de GitHub Actions.
+  #    No existe una llave privada que robar, filtrar ni rotar (ADR-003).
+  #    Solo corre en main: en un PR no hay imagen publicada que firmar.
+  #    Si tu organizacion no permite Fulcio/Rekor publicos, el README explica
+  #    la alternativa con llave en "Firma con llave".
+  # ---------------------------------------------------------------------------
+  sign:
+    name: "7 · firma (cosign keyless) [determinista]"
+    needs: [build, sbom]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write        # <- esto es lo que habilita keyless. Sin secretos.
+    steps:
+      - uses: sigstore/cosign-installer@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: firmar la imagen por digest
+        env:
+          REF: ${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}
+        run: cosign sign --yes "$REF"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: sbom
+
+      - name: adjuntar el SBOM firmado (attestation)
+        env:
+          REF: ${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}
+        run: |
+          cosign attest --yes \
+            --predicate sbom.spdx.json \
+            --type spdxjson \
+            "$REF"
+
+      - name: verificar la firma (si no se verifica, no sirve)
+        env:
+          REF: ${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}
+        run: |
+          cosign verify \
+            --certificate-identity-regexp "^https://github.com/${{ github.repository }}/" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$REF"
+
+  # ---------------------------------------------------------------------------
+  # 8. REVIEW DE IA  [ASISTIDO POR IA]  <-- NO ES UN GATE
+  #
+  #    Usa el prompt del subagente architect-reviewer (.claude/agents/) para
+  #    revisar el diff contra los ADRs y COMENTAR en el PR.
+  #
+  #    Lo que este job NO puede hacer, por diseno:
+  #      - aprobar el PR            (no tiene el permiso, y el prompt se lo prohibe)
+  #      - mergear                  (no tiene el permiso)
+  #      - editar codigo            (--allowedTools solo lectura)
+  #      - bloquear el merge        (continue-on-error: true)
+  #
+  #    Corre DESPUES de los gates deterministas a proposito: si el codigo ya
+  #    fallo arch:check, no gastamos tokens en explicar lo que la herramienta
+  #    ya dijo con precision.
+  # ---------------------------------------------------------------------------
+  ai-review:
+    name: "8 · review de arquitectura por IA [asistido, no bloquea]"
+    needs: [conftest]
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    continue-on-error: true      # <- un agente NUNCA bloquea un merge
+    permissions:
+      contents: read             # leer el codigo
+      pull-requests: write       # comentar (NO aprobar: eso requiere otro permiso y revision humana)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: diff del PR
+        id: diff
+        run: |
+          git diff --stat "origin/${{ github.base_ref }}...HEAD" > diff-stat.txt
+          echo "archivos tocados:"
+          cat diff-stat.txt
+
+      - name: architect-reviewer
+        uses: anthropics/claude-code-action@v1
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          use_sticky_comment: true
+          # Solo lectura. Sin Edit, sin Write, sin Bash: no puede cambiar el repo
+          # ni correr comandos arbitrarios en el runner.
+          claude_args: |
+            --allowedTools Read,Grep,Glob
+            --max-turns 20
+          prompt: |
+            Actua como el subagente `architect-reviewer` de este repositorio.
+
+            PRIMERO lee estos archivos y segui sus instrucciones al pie de la letra:
+              - .claude/agents/architect-reviewer.md   (tu rol, tus limites y el formato de salida)
+              - CLAUDE.md                              (reglas del proyecto)
+              - docs/adr/001-domain-pure.md
+              - docs/adr/002-ports-adapters.md
+              - docs/adr/003-no-agent-prod-creds.md
+              - .dependency-cruiser.js                 (las reglas que ya son automaticas)
+
+            Despues revisa el diff de este PR (rama base: ${{ github.base_ref }}) contra esos ADRs
+            y deja UN comentario en el PR con el formato de salida que indica
+            .claude/agents/architect-reviewer.md.
+
+            Reglas que no podes romper:
+            - NO apruebes el PR. No digas "LGTM", "aprobado" ni "listo para mergear".
+              Los gates deterministas (jobs 1-7) ya decidieron si el codigo pasa; vos EXPLICAS.
+              La aprobacion es de una persona.
+            - NO edites archivos. No tenes herramientas de escritura.
+            - Priorizá lo que las herramientas NO pueden ver: un puerto declarado en el lugar
+              equivocado, un segundo composition root, un cambio en .claude/, policy/ o
+              .github/workflows/ que AFLOJE un guardrail. Ese ultimo caso es el hallazgo mas
+              importante que podes reportar: decilo primero y con claridad.
+            - Si el diff viola un ADR y NO existe una regla que lo atrape, proponé la regla
+              concreta (el bloque de .dependency-cruiser.js o el rego) para que el proximo
+              intento falle solo.
+            - Si no hay nada que reportar, decilo en dos lineas. No inventes hallazgos.
+
+  # ---------------------------------------------------------------------------
+  # 9. APROBACION HUMANA  [GATE HUMANO]
+  #
+  #    Este job no verifica nada: existe para que el gate humano sea VISIBLE en
+  #    el pipeline. La aprobacion real la hace branch protection sobre `main`
+  #    (ver la seccion "Aprobacion humana" del README).
+  #
+  #    Ningun job anterior puede aprobar un PR, y este tampoco.
+  # ---------------------------------------------------------------------------
+  approval-gate:
+    name: "9 · aprobacion humana [humano]"
+    needs: [lint, tests, arch-check, conftest, build, sbom]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: resumen de los gates
+        run: |
+          echo "### Estado de los gates" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| # | Gate | Tipo | Resultado |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 1 | lint + typecheck | determinista | ${{ needs.lint.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 2 | tests + hooks | determinista | ${{ needs.tests.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 3 | arch:check (ADR-001/002) | determinista | ${{ needs.arch-check.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 4 | conftest (policy) | determinista | ${{ needs.conftest.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 5 | build de imagen | determinista | ${{ needs.build.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 6 | SBOM (syft) | determinista | ${{ needs.sbom.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 7 | firma (cosign keyless) | determinista | solo en main |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 8 | review de IA | asistido, no bloquea | ver comentario del PR |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 9 | **aprobacion humana** | **humano** | **pendiente: branch protection** |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "> Los agentes proponen, los gates deterministas deciden, los humanos son duenos de lo irreversible." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: fallar si algun gate determinista fallo
+        run: |
+          for result in \
+            "${{ needs.lint.result }}" \
+            "${{ needs.tests.result }}" \
+            "${{ needs.arch-check.result }}" \
+            "${{ needs.conftest.result }}" \
+            "${{ needs.build.result }}" \
+            "${{ needs.sbom.result }}"; do
+            if [ "$result" != "success" ]; then
+              echo "::error::un gate determinista no paso ($result). El PR no puede mergearse."
+              exit 1
+            fi
+          done
+          echo "Todos los gates deterministas pasaron. Falta la aprobacion humana."

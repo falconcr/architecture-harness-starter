@@ -1,0 +1,19 @@
+node_modules/
+dist/
+coverage/
+*.log
+
+# Nunca commiteamos secretos ni kubeconfigs (ADR-003).
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+kubeconfig
+kubeconfig.*
+sbom*.json
+*.sig
+
+# Artefactos temporales de la demo
+deploy/argocd/application.yaml
+demo/.state

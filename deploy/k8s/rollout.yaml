@@ -1,0 +1,114 @@
+# Rollout "orders": progresion canary 20 % -> analisis -> 50 % -> 100 %.
+#
+# Nadie promueve a mano: el paso de 20 % a 50 % lo decide el AnalysisTemplate
+# "error-rate" contra Prometheus. Si el analisis falla, Argo Rollouts aborta y
+# vuelve a la version estable sin intervencion humana.
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: orders
+  labels:
+    app.kubernetes.io/name: orders
+    app.kubernetes.io/part-of: harness-starter
+    app.kubernetes.io/managed-by: argocd
+spec:
+  replicas: 5
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: orders
+  strategy:
+    canary:
+      # Con 5 replicas: 20 % = 1 pod canary, 80 % = 4 pods estables.
+      maxSurge: 1
+      maxUnavailable: 0
+      steps:
+        # 1) 20 % del trafico a la version nueva.
+        - setWeight: 20
+
+        # 2) Pausa con analisis: el Rollout se queda aqui hasta que el analisis
+        #    termine. Exito -> sigue. Fallo -> aborta y hace rollback solo.
+        - analysis:
+            templates:
+              - templateName: error-rate
+            args:
+              - name: canary-hash
+                valueFrom:
+                  podTemplateHashValue: Latest
+
+        # 3) Si el analisis paso, subimos a 50 %.
+        - setWeight: 50
+        - pause: { duration: 30s }
+
+        # 4) Y finalmente 100 %.
+        - setWeight: 100
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: orders
+        app.kubernetes.io/part-of: harness-starter
+        app.kubernetes.io/managed-by: argocd
+      annotations:
+        # Prometheus descubre los pods por estas annotations (ver deploy/monitoring).
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: /metrics
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: orders
+          # Tag inmutable: ':latest' esta prohibido por policy/kubernetes.rego.
+          # El Acto 2 de la demo cambia este tag a orders:v2-bug.
+          image: orders:v1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: orders-config
+          env:
+            - name: APP_VERSION
+              value: v1
+            # Inyeccion de fallos para la demo del canary. En una build sana es "0".
+            # El Acto 2 lo pone en "0.3" y el analisis lo atrapa.
+            - name: FAULT_RATE
+              value: "0"
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 192Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

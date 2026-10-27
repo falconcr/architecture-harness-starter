@@ -1,0 +1,71 @@
+# AnalysisTemplate "error-rate": el gate determinista del deploy.
+#
+# Consulta Prometheus y decide si la version canary sigue o se revierte.
+# Dos condiciones, ambas tienen que cumplirse:
+#   1. tasa de error del canary  <  5 %   (http_requests_total con status=~"5..")
+#   2. latencia p95 del canary   <  300 ms
+#
+# Las consultas filtran por `pod_hash`, el label que Prometheus construye a partir
+# de `rollouts-pod-template-hash`. Sin ese filtro mediriamos el promedio de estable
+# + canary y el bug quedaria diluido.
+#
+# failureLimit: 1 => con una sola medicion fallida, el Rollout aborta y vuelve a
+# la version estable. Nadie aprieta un boton.
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: error-rate
+  labels:
+    app.kubernetes.io/name: orders
+    app.kubernetes.io/part-of: harness-starter
+    app.kubernetes.io/managed-by: argocd
+spec:
+  args:
+    - name: canary-hash
+    - name: prometheus-address
+      value: http://prometheus.monitoring.svc.cluster.local:9090
+  metrics:
+    - name: error-rate
+      # 30 s de gracia para que el pod canary arranque y acumule muestras.
+      initialDelay: 30s
+      interval: 20s
+      count: 3
+      successCondition: result[0] < 0.05
+      failureLimit: 1
+      provider:
+        prometheus:
+          address: "{{args.prometheus-address}}"
+          query: |
+            (
+              sum(rate(http_requests_total{
+                app="orders",
+                pod_hash="{{args.canary-hash}}",
+                status=~"5.."
+              }[1m])) or vector(0)
+            )
+            /
+            (
+              sum(rate(http_requests_total{
+                app="orders",
+                pod_hash="{{args.canary-hash}}"
+              }[1m])) or vector(1)
+            )
+
+    - name: latency-p95
+      initialDelay: 30s
+      interval: 20s
+      count: 3
+      successCondition: result[0] < 0.3
+      failureLimit: 1
+      provider:
+        prometheus:
+          address: "{{args.prometheus-address}}"
+          query: |
+            (
+              histogram_quantile(0.95,
+                sum(rate(http_request_duration_seconds_bucket{
+                  app="orders",
+                  pod_hash="{{args.canary-hash}}"
+                }[1m])) by (le)
+              ) or vector(0)
+            )

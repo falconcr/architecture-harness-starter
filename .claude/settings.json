@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json.schemastudio.com/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(npm run verify)",
+      "Bash(npm run lint)",
+      "Bash(npm test)",
+      "Bash(npm run arch:check)",
+      "Bash(npm run policy)",
+      "Bash(git status)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git switch -c:*)",
+      "Bash(kubectl --context kind-harness get:*)",
+      "Bash(kubectl --context kind-harness describe:*)",
+      "Bash(kubectl --context kind-harness logs:*)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./**/*.pem)",
+      "Read(./**/*.key)",
+      "Read(./**/kubeconfig*)",
+      "Bash(kubectl delete:*)",
+      "Bash(kubectl apply:*)",
+      "Bash(argocd app sync:*)",
+      "Bash(kubectl argo rollouts promote:*)",
+      "Bash(kubectl argo rollouts abort:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-kubectl.sh\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-git-push.sh\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-secret-read.sh\"",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Edit|Write|Grep|Glob|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-secret-read.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

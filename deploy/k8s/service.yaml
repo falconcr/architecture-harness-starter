@@ -1,0 +1,19 @@
+# Un solo Service para estable y canary: sin service mesh, Argo Rollouts reparte
+# el trafico por cantidad de replicas (1 de 5 = 20 %). Es lo mas liviano que funciona.
+apiVersion: v1
+kind: Service
+metadata:
+  name: orders
+  labels:
+    app.kubernetes.io/name: orders
+    app.kubernetes.io/part-of: harness-starter
+    app.kubernetes.io/managed-by: argocd
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: orders
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
