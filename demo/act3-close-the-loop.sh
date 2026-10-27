@@ -199,11 +199,16 @@ note "Prueba del guardrail nuevo: tiene que RECHAZAR el manifiesto del Acto 2."
 GUARDRAIL_CHECK_DIR=".harness-tmp/guardrail-check"
 mkdir -p "$GUARDRAIL_CHECK_DIR"
 sed -e 's/value: "0"/value: "0.3"/' deploy/k8s/rollout.yaml > "$GUARDRAIL_CHECK_DIR/rollout.yaml"
-if bash scripts/conftest.sh "$GUARDRAIL_CHECK_DIR" 2>&1 | grep -q 'FAULT_RATE'; then
-  ok "El guardrail rechaza el manifiesto que causo el incidente."
+# Capturamos la salida en una variable ANTES de buscar: con `pipefail` activo, el
+# `if` de un pipe lee el exit code de conftest (1 porque la policy FALLA, que es
+# justo lo que queremos comprobar) en vez del de grep.
+guardrail_output="$(bash scripts/conftest.sh "$GUARDRAIL_CHECK_DIR" 2>&1 || true)"
+if grep -q 'FAULT_RATE' <<<"$guardrail_output"; then
+  ok "El guardrail rechaza el manifiesto que causo el incidente:"
+  grep -E 'FAIL' <<<"$guardrail_output" | sed 's/^/    /'
 else
   bad "El guardrail NO atrapo el manifiesto. Revisá policy/fault-injection.rego"
-  bash scripts/conftest.sh "$GUARDRAIL_CHECK_DIR" 2>&1 | tail -5
+  tail -5 <<<"$guardrail_output"
 fi
 rm -rf .harness-tmp
 echo ""
@@ -213,9 +218,18 @@ pause_demo
 
 say "5. Los gates deterministas, antes de abrir el PR"
 note "incident-triage no abre un PR que no pase 'npm run verify'. Ni deberia."
-run npm run verify
 echo ""
-ok "Todos los gates pasan."
+printf '%s$ npm run verify%s\n' "$BOLD" "$RESET"
+if ! npm run verify; then
+  echo ""
+  bad "npm run verify FALLO: no se abre el PR."
+  note "Esto no es un bug de la demo: es el gate funcionando. Un agente que abre"
+  note "un PR que no pasa los gates le pasa el problema al revisor humano."
+  note "Arreglá lo que falla y volvé a correr el acto."
+  exit 1
+fi
+echo ""
+ok "Todos los gates pasan. Ahora si se puede abrir el PR."
 pause_demo
 
 say "6. El PR"
@@ -242,7 +256,12 @@ Verificado con: npm run verify
 MSG
 ok "Commit creado (convencional: lo va a tomar release-notes)."
 
-run git push -u origin "$BRANCH"
+if ! git push -u origin "$BRANCH"; then
+  echo ""
+  bad "No pude pushear '$BRANCH'."
+  note "Si quedo una rama vieja de un ensayo anterior:  bash demo/reset.sh"
+  exit 1
+fi
 
 PR_BODY="$(mktemp)"
 cat > "$PR_BODY" <<'MSG'
