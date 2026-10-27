@@ -37,7 +37,7 @@ describe('/metrics', () => {
   });
 
   it('cuenta los 500 inyectados con status="500"', async () => {
-    app = await buildServer(loadConfig({ LOG_LEVEL: 'silent', FAULT_RATE: '0.5' }));
+    app = await buildServer(loadConfig({ LOG_LEVEL: 'silent', FAULT_RATE: '0.5', ALLOW_FAULT_INJECTION: 'true' }));
     for (let i = 0; i < 10; i += 1) {
       await app.inject({ method: 'GET', url: '/orders' });
     }
