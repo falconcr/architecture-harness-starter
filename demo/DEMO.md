@@ -295,10 +295,14 @@ npm run verify                      # verde
 gh pr create --base main --head demo/acto-3-fix --fill
 ```
 
-PR de ejemplo ya abierto (real): **https://github.com/falconcr/architecture-harness-starter/pull/4**
+PR de ejemplo ya abierto (real): **https://github.com/falconcr/architecture-harness-starter/pull/5**
+(sale de `demo/acto-3-fix`, que es una rama **permanente**: `demo/reset.sh` no la toca).
 
-La rama permanente `demo/acto-3-fix` tiene ese mismo fix ya commiteado y **el reset no la borra**,
-asi que siempre podes abrir el PR de nuevo desde ahi.
+Ojo con esto si armás tu propio repo: el PR del plan B tiene que salir de una rama permanente.
+Si lo abrís desde `fix/fault-rate-guard` —la rama que crea el acto en vivo— el primer
+`demo/reset.sh` borra esa rama en `origin` y **cierra tu PR de plan B**. Pasó mientras se
+verificaba este repo; de ahí la separación entre ramas efímeras y ramas de plan B en
+[`demo/reset.sh`](reset.sh).
 
 Descripción lista para pegar (si `gh` falla y lo tenés que crear desde la web):
 
