@@ -60,8 +60,33 @@ rm -f src/infrastructure/db.ts test/fault-rate-guard.test.ts policy/fault-inject
 git checkout -- . 2>/dev/null || true
 
 say "2. Borrar las ramas efimeras de la demo"
+# Commits que los actos crean ellos mismos; borrarlos es correcto.
+# Cualquier otro commit en una rama de demo es trabajo de una persona.
+ACT_COMMIT_REGEX='^(feat: nueva version de orders|feat: persistir pedidos|fix: FAULT_RATE requiere habilitacion explicita)'
+
 for branch in "${EPHEMERAL_BRANCHES[@]}"; do
   if git show-ref --verify --quiet "refs/heads/$branch"; then
+    # `git branch -D` descarta commits SIN AVISAR. Me comio dos arreglos
+    # verificando este repo (commiteados estando parado en una rama de demo).
+    # Antes de borrar, revisamos que todo lo que hay sea de los actos.
+    foreign=()
+    while IFS= read -r subject; do
+      [[ -z "$subject" ]] && continue
+      [[ "$subject" =~ $ACT_COMMIT_REGEX ]] || foreign+=("$subject")
+    done <<<"$(git log --format='%s' "main..$branch" 2>/dev/null)"
+
+    if [[ ${#foreign[@]} -gt 0 ]]; then
+      bad "La rama '$branch' tiene commits que NO son de la demo:"
+      git log --oneline "main..$branch" | sed 's/^/      /'
+      echo ""
+      note "No la voy a borrar. Si ese trabajo te importa:"
+      note "    git cherry-pick <hash>     # llevalo a main"
+      note "y si no te importa:"
+      note "    git branch -D $branch"
+      note "Despues volvé a correr: bash demo/reset.sh"
+      exit 1
+    fi
+
     git branch -D "$branch" >/dev/null && note "borrada local: $branch"
   fi
 
