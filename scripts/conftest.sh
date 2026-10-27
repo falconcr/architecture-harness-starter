@@ -7,6 +7,9 @@
 set -euo pipefail
 
 CONFTEST_VERSION="${CONFTEST_VERSION:-v0.56.0}"
+# OJO: TARGET tiene que estar DENTRO del repo. Cuando no hay conftest local, esto
+# corre en un contenedor que solo monta el repo, asi que una ruta de /tmp no existe
+# ahi adentro. Para probar un manifiesto temporal, usa .harness-tmp/ (ignorado por git).
 TARGET="${1:-deploy/k8s}"
 POLICY_DIR="${POLICY_DIR:-policy}"
 

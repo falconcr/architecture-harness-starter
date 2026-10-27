@@ -124,6 +124,26 @@ describe('FAULT_RATE necesita habilitacion explicita', () => {
 });
 ''')
 print("  test/fault-rate-guard.test.ts  (el test de regresion)")
+
+# --- 3) El fix cambia el contrato de FAULT_RATE: los tests que dependian del
+#        comportamiento anterior se actualizan EN EL MISMO PR, a la vista.
+routes = Path("test/routes.test.ts")
+source = routes.read_text()
+source = source.replace(
+    "const server = await startApp({ FAULT_RATE: '0.3' });",
+    "const server = await startApp({ FAULT_RATE: '0.3', ALLOW_FAULT_INJECTION: 'true' });",
+)
+routes.write_text(source)
+print("  test/routes.test.ts            (actualizado al contrato nuevo)")
+
+metrics = Path("test/metrics.test.ts")
+source = metrics.read_text()
+source = source.replace(
+    "loadConfig({ LOG_LEVEL: 'silent', FAULT_RATE: '0.5' })",
+    "loadConfig({ LOG_LEVEL: 'silent', FAULT_RATE: '0.5', ALLOW_FAULT_INJECTION: 'true' })",
+)
+metrics.write_text(source)
+print("  test/metrics.test.ts           (actualizado al contrato nuevo)")
 PY
 
 run git --no-pager diff --stat
@@ -174,14 +194,18 @@ deny contains msg if {
 REGO
 echo ""
 note "Prueba del guardrail nuevo: tiene que RECHAZAR el manifiesto del Acto 2."
-mkdir -p /tmp/harness-guardrail-check
-sed -e 's/value: "0"/value: "0.3"/' deploy/k8s/rollout.yaml > /tmp/harness-guardrail-check/rollout.yaml
-if bash scripts/conftest.sh /tmp/harness-guardrail-check 2>&1 | grep -q 'FAULT_RATE'; then
+# El directorio de prueba va DENTRO del repo: conftest puede correr en un contenedor
+# que solo monta el repo, asi que una ruta de /tmp no existiria ahi adentro.
+GUARDRAIL_CHECK_DIR=".harness-tmp/guardrail-check"
+mkdir -p "$GUARDRAIL_CHECK_DIR"
+sed -e 's/value: "0"/value: "0.3"/' deploy/k8s/rollout.yaml > "$GUARDRAIL_CHECK_DIR/rollout.yaml"
+if bash scripts/conftest.sh "$GUARDRAIL_CHECK_DIR" 2>&1 | grep -q 'FAULT_RATE'; then
   ok "El guardrail rechaza el manifiesto que causo el incidente."
 else
   bad "El guardrail NO atrapo el manifiesto. Revisá policy/fault-injection.rego"
+  bash scripts/conftest.sh "$GUARDRAIL_CHECK_DIR" 2>&1 | tail -5
 fi
-rm -rf /tmp/harness-guardrail-check
+rm -rf .harness-tmp
 echo ""
 note "Y acepta el manifiesto sano de main:"
 run npm run policy
@@ -195,7 +219,8 @@ ok "Todos los gates pasan."
 pause_demo
 
 say "6. El PR"
-run git add src/infrastructure/config.ts test/fault-rate-guard.test.ts policy/fault-injection.rego
+run git add src/infrastructure/config.ts test/fault-rate-guard.test.ts \
+  test/routes.test.ts test/metrics.test.ts policy/fault-injection.rego
 
 git commit -q -F - <<'MSG'
 fix: FAULT_RATE requiere habilitacion explicita
@@ -207,6 +232,9 @@ y Argo Rollouts revirtio solo.
 
 Fix: FAULT_RATE solo tiene efecto si ALLOW_FAULT_INJECTION=true.
 Test de regresion: test/fault-rate-guard.test.ts (falla sin el fix).
+Los tests que dependian del contrato anterior (routes, metrics) pasan ahora
+ALLOW_FAULT_INJECTION=true explicitamente: el cambio de contrato queda a la vista
+en el diff, no escondido.
 Guardrail nuevo: policy/fault-injection.rego prohibe FAULT_RATE > 0 en cualquier
 manifiesto desplegable, asi este manifiesto ya no puede ni mergearse.
 
@@ -240,6 +268,10 @@ vale 0 siempre.
 
 ### Test de regresion
 `test/fault-rate-guard.test.ts`: falla sin el fix, pasa con el fix.
+
+Y los tests que dependian del contrato anterior (`test/routes.test.ts`,
+`test/metrics.test.ts`) ahora piden `ALLOW_FAULT_INJECTION=true` explicitamente. El cambio de
+contrato esta en el diff, no escondido detras de un test borrado.
 
 ### Guardrail nuevo
 `policy/fault-injection.rego` **prohibe** `FAULT_RATE > 0` y `ALLOW_FAULT_INJECTION=true` en

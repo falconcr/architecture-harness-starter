@@ -17,3 +17,4 @@ sbom*.json
 # Artefactos temporales de la demo
 deploy/argocd/application.yaml
 demo/.state
+.harness-tmp/
