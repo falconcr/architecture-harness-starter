@@ -186,6 +186,37 @@ require_cluster() {
   local kubectl_error
   kubectl_error="$($KUBECTL cluster-info 2>&1 >/dev/null || true)"
 
+  # Caso aparte, y el mas confuso de todos: el contexto no existe en el
+  # kubeconfig que lee ESTA terminal. No es transitorio, asi que esperar no sirve.
+  # Pasa cuando hay un KUBECONFIG exportado apuntando a otro cluster, algo
+  # normalisimo en una laptop con varios clusters. (Caso real: una terminal con
+  # KUBECONFIG de otro proyecto; kind y docker funcionaban, kubectl no.)
+  if grep -qiE 'context .* does not exist|no context exists' <<<"$kubectl_error"; then
+    local effective_config="${KUBECONFIG:-$HOME/.kube/config}"
+    bad "El contexto '${KUBE_CONTEXT}' no existe en el kubeconfig de esta terminal."
+    echo ""
+    note "kubeconfig en uso:  ${effective_config}"
+    if [[ -n "${KUBECONFIG:-}" ]]; then
+      note "  (viene de la variable KUBECONFIG exportada en esta terminal)"
+    fi
+    note "contextos que ve:"
+    kubectl config get-contexts -o name 2>/dev/null | sed 's/^/      /' || true
+    echo ""
+
+    if [[ -n "${KUBECONFIG:-}" ]] \
+      && kubectl --kubeconfig "$HOME/.kube/config" config get-contexts -o name 2>/dev/null \
+         | grep -qx "${KUBE_CONTEXT}"; then
+      note "El contexto SI existe en ~/.kube/config. Tenes un KUBECONFIG apuntando a otro lado."
+      note "Arreglalo en esta terminal con:"
+      printf '\n      unset KUBECONFIG\n\n'
+      note "(o abrí una terminal nueva)"
+    else
+      note "Regeneralo desde kind con:"
+      printf '\n      kind export kubeconfig --name %s\n\n' "$cluster"
+    fi
+    exit 1
+  fi
+
   warn "El cluster '${cluster}' corre, pero kubectl no puede hablarle."
   echo ""
   note "Esto es lo que dice kubectl (el dato que importa):"
