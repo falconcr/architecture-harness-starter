@@ -69,6 +69,16 @@ run git push -u origin "$BRANCH"
 note "Apuntamos Argo CD a esta rama para no necesitar un merge en vivo."
 run make --no-print-directory argocd-app GIT_BRANCH="$BRANCH"
 run make --no-print-directory sync
+
+# Momento ideal para mostrar la UI: Argo CD acaba de recibir el cambio.
+if curl -sk -o /dev/null --max-time 2 https://localhost:8080 2>/dev/null; then
+  ok "La UI de Argo CD esta arriba: https://localhost:8080  (usuario admin)"
+  note "Mostrá la app 'orders' sincronizando, y despues el Rollout degradandose."
+else
+  warn "Para verlo en la UI de Argo CD (en otra terminal, no bloquea):"
+  note "    make ui          # Argo CD en :8080 + Prometheus en :9090, con el password"
+  note "Y despues, en el navegador: https://localhost:8080 -> aplicacion 'orders'"
+fi
 pause_demo
 
 say "4. Argo Rollouts manda 20 % del trafico a la version nueva"
@@ -212,7 +222,29 @@ cat <<'MSG'
 MSG
 pause_demo
 
-say "8. Plan B / reset"
+say "8. Donde mirarlo en la UI"
+cat <<'MSG'
+
+  Argo CD     https://localhost:8080   (make ui te da el password)
+    - Applications -> orders:  Synced / Degraded, y el historial de syncs
+    - click en el Rollout 'orders': el arbol de revisiones, la estable y la canary
+    - Events: el sync que disparo este deploy, con el hash del commit
+
+  Prometheus  http://localhost:9090
+    - pega esta consulta para ver el bug separado por version:
+
+      (sum by (pod_hash) (rate(http_requests_total{app="orders",status=~"5.."}[1m]))
+        or sum by (pod_hash) (rate(http_requests_total{app="orders"}[1m])) * 0)
+      / sum by (pod_hash) (rate(http_requests_total{app="orders"}[1m]))
+
+    - una serie cerca de 0 (la estable) y otra cerca de 0.26 (la canary)
+    - el "or ... * 0" no es adorno: sin eso la version sana no genera serie
+      (no tiene 5xx) y la consulta devuelve vacio en vez de 0
+
+MSG
+pause_demo
+
+say "9. Plan B / reset"
 note "Salida real guardada: demo/act2-output.txt"
 note "Para dejar todo como estaba:  bash demo/reset.sh"
 echo ""

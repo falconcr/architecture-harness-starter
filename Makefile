@@ -259,9 +259,51 @@ logs: ## Logs del servicio (solo lectura)
 # ===========================================================================
 # UIs
 # ===========================================================================
+.PHONY: ui
+ui: ## Abre las UIs (Argo CD + Prometheus) en BACKGROUND, listas para la demo
+	@mkdir -p .harness-tmp
+	# En escena no sirve un port-forward que te bloquea la terminal.
+	# Esto los deja corriendo y te devuelve el prompt con las credenciales.
+	for spec in "argocd:svc/argocd-server:8080:443" "monitoring:svc/prometheus:9090:9090"; do
+	  ns="$${spec%%:*}"; rest="$${spec#*:}"
+	  svc="$${rest%%:*}"; rest="$${rest#*:}"
+	  local_port="$${rest%%:*}"; remote_port="$${rest##*:}"
+	  pidfile=".harness-tmp/pf-$${ns}.pid"
+	  if [ -f "$$pidfile" ] && kill -0 "$$(cat $$pidfile)" 2>/dev/null; then
+	    echo "    ya corria: $$ns en localhost:$$local_port"
+	    continue
+	  fi
+	  nohup $(KUBECTL) -n "$$ns" port-forward "$$svc" "$$local_port:$$remote_port" 	    > ".harness-tmp/pf-$$ns.log" 2>&1 &
+	  echo $$! > "$$pidfile"
+	  echo "    levantado: $$ns en localhost:$$local_port"
+	done
+	sleep 3
+	echo ""
+	echo "=========================================================="
+	echo "  Argo CD     https://localhost:8080"
+	echo "    usuario   admin"
+	printf "    password  "
+	$(KUBECTL) -n argocd get secret argocd-initial-admin-secret 	  -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || echo "(no disponible)"
+	echo ""
+	echo "  Prometheus  http://localhost:9090"
+	echo ""
+	echo "  Para cerrarlas:  make ui-stop"
+	echo "=========================================================="
+
+.PHONY: ui-stop
+ui-stop: ## Cierra los port-forward de las UIs
+	@for pidfile in .harness-tmp/pf-*.pid; do
+	  [ -f "$$pidfile" ] || continue
+	  pid="$$(cat $$pidfile)"
+	  if kill "$$pid" 2>/dev/null; then echo "    cerrado: pid $$pid"; fi
+	  rm -f "$$pidfile"
+	done
+	echo "==> UIs cerradas."
+
 .PHONY: argocd-ui
-argocd-ui: ## Port-forward a la UI de Argo CD (https://localhost:8080)
+argocd-ui: ## Port-forward a la UI de Argo CD en primer plano (bloquea; para la demo usa 'make ui')
 	@echo "==> https://localhost:8080  (usuario admin, 'make argocd-password')"
+	echo "    (bloquea esta terminal; si queres seguir usandola: make ui)"
 	$(KUBECTL) -n argocd port-forward svc/argocd-server 8080:443
 
 .PHONY: argocd-password

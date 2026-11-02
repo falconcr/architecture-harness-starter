@@ -153,11 +153,38 @@ require_tools() {
   exit 1
 }
 
+# Un KUBECONFIG exportado apuntando a otro cluster es el pie mas facil de meter
+# en una laptop con varios clusters: kubectl dice 'context does not exist' y
+# parece que el cluster esta roto cuando esta perfecto.
+#
+# Si ese kubeconfig no tiene nuestro contexto y ~/.kube/config SI lo tiene, lo
+# neutralizamos SOLO dentro de este proceso. No tocamos tu shell: cuando el acto
+# termina, tu KUBECONFIG sigue como estaba.
+neutralize_foreign_kubeconfig() {
+  [[ -z "${KUBECONFIG:-}" ]] && return 0
+
+  kubectl config get-contexts -o name 2>/dev/null | grep -qx "$KUBE_CONTEXT" && return 0
+
+  if ! kubectl --kubeconfig "$HOME/.kube/config" config get-contexts -o name 2>/dev/null \
+       | grep -qx "$KUBE_CONTEXT"; then
+    return 0   # tampoco esta en el default: que lo diagnostique require_cluster
+  fi
+
+  warn "Tenes KUBECONFIG apuntando a otro cluster:"
+  note "    $KUBECONFIG"
+  note "ese kubeconfig no tiene el contexto '$KUBE_CONTEXT', pero ~/.kube/config si."
+  note "Lo ignoro SOLO para este acto (tu terminal queda como estaba)."
+  note "Para arreglarlo en tu shell:   unset KUBECONFIG"
+  unset KUBECONFIG
+  echo ""
+}
+
 require_cluster() {
   local cluster="${CLUSTER_NAME:-harness}"
 
   # Sin esto, un kubectl ausente se confunde con un cluster caido.
   require_tools kubectl kind docker
+  neutralize_foreign_kubeconfig
 
   $KUBECTL cluster-info >/dev/null 2>&1 && return 0
 

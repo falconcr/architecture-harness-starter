@@ -237,8 +237,8 @@ make up                 # kind + Argo CD + Argo Rollouts + Prometheus + la app
 
 # 3. Mirar
 make rollout-status     # el Rollout 'orders'
-make argocd-ui          # https://localhost:8080  (make argocd-password)
-make prom-ui            # http://localhost:9090
+make ui                 # Argo CD (:8080) + Prometheus (:9090) en background, con el password
+make ui-stop            # cerrarlas
 make smoke              # pegarle al servicio
 
 # 4. La demo (los tres actos se encadenan: no hace falta resetear en medio)

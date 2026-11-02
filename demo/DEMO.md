@@ -11,7 +11,7 @@ Tres actos, ~15 minutos en total. Cada acto tiene **lo que hacés**, **lo que de
 
 ```bash
 # En la terminal que vas a usar, SIEMPRE primero:
-unset KUBECONFIG                     # ver el checklist del final: es el pie mas facil de meter
+unset KUBECONFIG && make preflight   # el pie mas facil de meter; ver el checklist del final
 
 # Una sola vez
 npm ci
@@ -20,6 +20,10 @@ make install-rollouts-plugin         # el Acto 2 se ve MUCHO mejor con el plugin
 # Antes de la charla (tarda 6-8 min la primera vez)
 make up
 make rollout-status                  # tiene que decir Healthy, 5/5
+
+# Las UIs, en background (no te bloquean la terminal) + el password de Argo CD
+make ui                              # Argo CD :8080 · Prometheus :9090
+make ui-stop                         # cuando termines
 
 # Entre ensayos completos
 bash demo/reset.sh
@@ -214,6 +218,45 @@ PR que dejó `architect-reviewer` es la frutilla: podés mostrar los dos lados d
 > Y `canary-analyst` **no puede promover ni abortar**. Llega después del rollback, no en lugar del
 > rollback. Su trabajo es que yo entienda en treinta segundos lo que pasó, no decidir.
 
+### Mostrarlo en la UI de Argo CD
+
+Si proyectás la UI, el momento es **justo después del push** (paso 3 del script): Argo CD acaba de
+recibir el cambio y lo vas a ver sincronizar en vivo. El script detecta si la UI está arriba y te
+lo recuerda ahí mismo.
+
+```bash
+make ui          # en otra terminal; no bloquea y te imprime el password
+```
+
+Qué señalar, en este orden:
+
+| Dónde | Qué se ve | Qué decís |
+|---|---|---|
+| **Applications → orders** | pasa a `Synced` y después a `Degraded` | "Argo CD ya aplicó lo que yo commiteé. Yo no toqué el cluster." |
+| **El nodo `orders` (Rollout)** | árbol con revisión estable y canary, la canary escalando a cero | "Ahí está el canary recibiendo 20 %, y ahí está desapareciendo solo." |
+| **Events / History** | el sync con el hash del commit | "Cada cosa que llegó al cluster tiene un commit detrás. Trazabilidad gratis." |
+| **Prometheus :9090** | dos series separadas por `pod_hash` | "El gate no mira el promedio: mira la versión nueva sola." |
+
+La consulta para Prometheus, por si la querés tipear en vivo:
+
+```promql
+(
+  sum by (pod_hash) (rate(http_requests_total{app="orders",status=~"5.."}[1m]))
+  or sum by (pod_hash) (rate(http_requests_total{app="orders"}[1m])) * 0
+)
+/ sum by (pod_hash) (rate(http_requests_total{app="orders"}[1m]))
+```
+
+Una serie cerca de `0` (la estable) y otra cerca de `0.26` (la canary). Esa imagen explica en un
+segundo por qué el `AnalysisTemplate` filtra por `pod_hash`: sin ese filtro, el promedio de las
+cinco réplicas diluye un 26 % a ~5 % y el bug pasa raspando.
+
+> **Por qué la consulta tiene ese `or ... * 0`**, que parece de más: la versión estable no genera
+> ninguna serie con `status=~"5.."` (no tiene errores), así que la división se queda sin numerador
+> y PromQL devuelve **vacío** — no `0`. Sin ese relleno, la consulta no muestra nada justo cuando
+> todo está bien, y en vivo parece que Prometheus está roto. Lo descubrí probando esta misma
+> query antes de ponerla acá.
+
 ### Plan B del Acto 2
 
 Salida real guardada en **[`demo/act2-output.txt`](act2-output.txt)**:
@@ -406,8 +449,10 @@ make down && make up
 - [ ] `bash demo/reset.sh` corrido: `main` limpio, sin ramas de demo colgadas.
 - [ ] Terminal B con `claude` abierto en la raíz del repo.
 - [ ] Fuente grande en las dos terminales (≥ 16 pt) y fondo claro si la sala es grande.
-- [ ] Pestañas del navegador abiertas **antes**:
-      el run fallido del Acto 1 · el PR del Acto 3 · la UI de Argo CD (`make argocd-ui`).
+- [ ] `make ui` corrido, y pestañas del navegador abiertas **antes**:
+      el run fallido del Acto 1 · el PR del Acto 3 · **Argo CD (`https://localhost:8080`, ya
+      logueado como `admin`)** · Prometheus (`http://localhost:9090`).
+      Loguearte en Argo CD en vivo es tiempo muerto: hacelo antes.
 - [ ] `demo/act2-output.txt` existe y tiene números reales.
 - [ ] `demo/DEMO.md` abierto en otra ventana (este archivo) con los links de los planes B pegados.
 - [ ] Wi-Fi probado: el Acto 2 necesita que Argo CD alcance GitHub.
