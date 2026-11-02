@@ -179,9 +179,20 @@ require_cluster() {
     exit 1
   fi
 
-  # 3) Existe y corre, pero el API server todavia no responde: esperamos.
-  warn "El cluster '${cluster}' esta arrancando (el API server todavia no responde)."
-  note "Pasa despues de reiniciar o suspender la laptop. Esperando hasta 2 minutos..."
+  # 3) Existe y corre, pero el API server no responde. Puede ser que este
+  #    arrancando (reinicio/suspension) o que haya un problema de verdad, asi que
+  #    mostramos EL ERROR REAL de kubectl en vez de esconderlo: diagnosticar a
+  #    ciegas cuesta mas que no diagnosticar.
+  local kubectl_error
+  kubectl_error="$($KUBECTL cluster-info 2>&1 >/dev/null || true)"
+
+  warn "El cluster '${cluster}' corre, pero kubectl no puede hablarle."
+  echo ""
+  note "Esto es lo que dice kubectl (el dato que importa):"
+  printf '%s\n' "${kubectl_error:-(sin mensaje)}" | sed 's/^/      /'
+  echo ""
+  note "Puede ser que este arrancando (pasa al reiniciar o suspender la laptop)."
+  note "Esperando hasta 2 minutos..."
   for _ in $(seq 1 24); do
     sleep 5
     if $KUBECTL cluster-info >/dev/null 2>&1; then
@@ -192,8 +203,18 @@ require_cluster() {
   done
 
   bad "El cluster '${cluster}' no respondio en 2 minutos."
-  note "Mirá que pasa:  docker logs ${cluster}-control-plane --tail 30"
-  note "Si no arranca:  make down && make up"
+  echo ""
+  note "Diagnostico, en este orden:"
+  note "  1. kubectl que estas usando:   command -v kubectl"
+  note "  2. kubeconfig que lee:         echo \"\$KUBECONFIG\"  (vacio = ~/.kube/config)"
+  note "  3. a donde apunta:             kubectl config view --minify --context ${KUBE_CONTEXT} -o jsonpath='{.clusters[0].cluster.server}'"
+  note "  4. proxy que puede romperlo:   env | grep -i proxy"
+  note "     (si hay HTTPS_PROXY sin NO_PROXY=127.0.0.1, kubectl no llega al API local)"
+  note "  5. responde el puerto?:        curl -sk -o /dev/null -w '%{http_code}\\n' \\"
+  note "                                   \"\$(kubectl config view --minify --context ${KUBE_CONTEXT} -o jsonpath='{.clusters[0].cluster.server}')/livez\""
+  note "  6. logs del nodo:              docker logs ${cluster}-control-plane --tail 30"
+  echo ""
+  note "Si nada de eso explica nada:   make down && make up"
   exit 1
 }
 
