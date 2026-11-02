@@ -83,7 +83,20 @@ preflight: ## Verifica que tengas las herramientas necesarias
 	@missing=0
 	for bin in docker kind kubectl node npm git; do
 	  if ! command -v $$bin >/dev/null 2>&1; then
-	    echo "FALTA: $$bin"; missing=1
+	    missing=1
+	    # Lo mas comun no es que falte, es que su directorio no este en el PATH
+	    # de esta terminal (kubectl por snap vive en /snap/bin, que algunos
+	    # ~/.bashrc no incluyen). Decimos donde esta, no solo que falta.
+	    found=""
+	    for dir in /snap/bin /usr/local/bin /usr/bin /bin "$$HOME/.local/bin" "$$HOME/bin"; do
+	      if [ -x "$$dir/$$bin" ]; then found="$$dir/$$bin"; break; fi
+	    done
+	    if [ -n "$$found" ]; then
+	      echo "FALTA EN EL PATH: $$bin  (esta instalado en $$found)"
+	      echo "    export PATH=\"$$(dirname $$found):\$$PATH\"      # y agregalo a ~/.bashrc"
+	    else
+	      echo "NO INSTALADO: $$bin"
+	    fi
 	  fi
 	done
 	if [ "$$missing" = "1" ]; then

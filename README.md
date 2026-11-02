@@ -191,6 +191,16 @@ porque pasaron.
 | **git** + **gh** | — | GitOps y el PR del Acto 3 |
 | helm | 3+ (opcional) | no hace falta: todo se instala con `kubectl apply` |
 
+> **Si `make up` o un acto te dice que falta `kubectl` y vos sabés que lo tenés instalado**, casi
+> siempre es que su directorio no está en el PATH de esa terminal. El caso típico: `kubectl`
+> instalado por snap vive en `/snap/bin`, y algunos `~/.bashrc` lo pisan. `make preflight` te dice
+> exactamente dónde está y qué exportar.
+>
+> ```bash
+> command -v kubectl || ls -la /snap/bin/kubectl /usr/local/bin/kubectl 2>/dev/null
+> export PATH="/snap/bin:$PATH"     # y agregá la línea a ~/.bashrc
+> ```
+
 Opcionales (si no están, se usan vía Docker o se saltean):
 
 - `conftest` → si falta, [`scripts/conftest.sh`](scripts/conftest.sh) usa

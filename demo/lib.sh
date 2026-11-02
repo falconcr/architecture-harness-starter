@@ -117,8 +117,47 @@ require_clean_tree() {
 # El que mas duele en escena es el tercero: despues de reiniciar o suspender la
 # laptop el cluster existe y esta sano, pero el API server tarda ~1 minuto en
 # volver. Mandarte a `make up` ahi es perder 6 minutos por nada.
+# Antes de culpar al cluster, hay que descartar lo mas comun: que la herramienta
+# no este en el PATH de ESTA terminal.
+#
+# El caso real que motivo esto: kubectl instalado por snap vive en /snap/bin, que
+# algunos ~/.bashrc no incluyen. kind y docker (en /usr/local/bin) si se
+# encontraban, asi que el script veia "el cluster existe" + "kubectl falla" y
+# concluia "el API no responde", y esperaba dos minutos por nada. El mensaje tiene
+# que decir que falta y donde esta.
+TOOL_SEARCH_DIRS=(/snap/bin /usr/local/bin /usr/bin /bin "$HOME/.local/bin" "$HOME/bin")
+
+require_tools() {
+  local missing=() tool
+  for tool in "$@"; do
+    command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
+  done
+  [[ ${#missing[@]} -eq 0 ]] && return 0
+
+  bad "Falta en el PATH de esta terminal: ${missing[*]}"
+  echo ""
+  for tool in "${missing[@]}"; do
+    local found="" dir
+    for dir in "${TOOL_SEARCH_DIRS[@]}"; do
+      [[ -x "$dir/$tool" ]] && { found="$dir/$tool"; break; }
+    done
+    if [[ -n "$found" ]]; then
+      note "'$tool' SI esta instalado, en $found"
+      note "    pero $(dirname "$found") no esta en tu PATH. Arreglalo asi:"
+      printf '\n      export PATH="%s:$PATH"\n\n' "$(dirname "$found")"
+      note "    y para que quede: agregá esa linea a ~/.bashrc"
+    else
+      note "'$tool' no esta instalado. Ver 'Requisitos' en README.md"
+    fi
+  done
+  exit 1
+}
+
 require_cluster() {
   local cluster="${CLUSTER_NAME:-harness}"
+
+  # Sin esto, un kubectl ausente se confunde con un cluster caido.
+  require_tools kubectl kind docker
 
   $KUBECTL cluster-info >/dev/null 2>&1 && return 0
 
