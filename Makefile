@@ -259,8 +259,31 @@ logs: ## Logs del servicio (solo lectura)
 # ===========================================================================
 # UIs
 # ===========================================================================
+.PHONY: ctx-check
+ctx-check: ## Verifica que kubectl pueda hablarle al contexto de la demo
+	@if $(KUBECTL) cluster-info >/dev/null 2>&1; then exit 0; fi
+	err="$$($(KUBECTL) cluster-info 2>&1 >/dev/null || true)"
+	echo "ERROR: kubectl no puede hablarle al contexto '$(KUBE_CONTEXT)'."
+	echo ""
+	echo "  Esto dice kubectl:"
+	echo "      $$err"
+	echo ""
+	if [ -n "$${KUBECONFIG:-}" ]; then
+	  echo "  Tenes KUBECONFIG exportado -> $${KUBECONFIG}"
+	  echo "  Si es de otro cluster (lo mas probable), arreglalo con:"
+	  echo ""
+	  echo "      unset KUBECONFIG"
+	  echo ""
+	else
+	  echo "  Para diagnosticar:   make preflight"
+	  echo "                       kind get clusters"
+	  echo "                       docker ps --filter label=io.x-k8s.kind.cluster=$(CLUSTER)"
+	  echo ""
+	fi
+	exit 1
+
 .PHONY: ui
-ui: ## Abre las UIs (Argo CD + Prometheus) en BACKGROUND, listas para la demo
+ui: ctx-check ## Abre las UIs (Argo CD + Prometheus) en BACKGROUND, listas para la demo
 	@mkdir -p .harness-tmp
 	# En escena no sirve un port-forward que te bloquea la terminal.
 	# Esto los deja corriendo y te devuelve el prompt con las credenciales.
@@ -274,10 +297,30 @@ ui: ## Abre las UIs (Argo CD + Prometheus) en BACKGROUND, listas para la demo
 	    continue
 	  fi
 	  nohup $(KUBECTL) -n "$$ns" port-forward "$$svc" "$$local_port:$$remote_port" 	    > ".harness-tmp/pf-$$ns.log" 2>&1 &
-	  echo $$! > "$$pidfile"
-	  echo "    levantado: $$ns en localhost:$$local_port"
+	  pid=$$!
+	  echo $$pid > "$$pidfile"
+
+	  # No cantamos exito sin comprobarlo: un port-forward que murio al
+	  # instante dejaba el banner con las URLs igual, y el problema se
+	  # descubria en escena.
+	  up=0
+	  for _ in 1 2 3 4 5 6 7 8 9 10; do
+	    sleep 1
+	    if ! kill -0 "$$pid" 2>/dev/null; then break; fi
+	    if (exec 3<>/dev/tcp/127.0.0.1/$$local_port) 2>/dev/null; then up=1; break; fi
+	  done
+
+	  if [ "$$up" = "1" ]; then
+	    echo "    OK  $$ns -> localhost:$$local_port"
+	  else
+	    echo "    FALLO: el port-forward de $$ns murio al instante."
+	    echo "    Esto dice kubectl:"
+	    sed "s/^/        /" ".harness-tmp/pf-$$ns.log" 2>/dev/null | head -5
+	    kill "$$pid" 2>/dev/null || true
+	    rm -f "$$pidfile"
+	    exit 1
+	  fi
 	done
-	sleep 3
 	echo ""
 	echo "=========================================================="
 	echo "  Argo CD     https://localhost:8080"
@@ -301,7 +344,7 @@ ui-stop: ## Cierra los port-forward de las UIs
 	echo "==> UIs cerradas."
 
 .PHONY: argocd-ui
-argocd-ui: ## Port-forward a la UI de Argo CD en primer plano (bloquea; para la demo usa 'make ui')
+argocd-ui: ctx-check ## Port-forward a la UI de Argo CD en primer plano (bloquea; para la demo usa 'make ui')
 	@echo "==> https://localhost:8080  (usuario admin, 'make argocd-password')"
 	echo "    (bloquea esta terminal; si queres seguir usandola: make ui)"
 	$(KUBECTL) -n argocd port-forward svc/argocd-server 8080:443
@@ -312,7 +355,7 @@ argocd-password: ## Password inicial de admin en Argo CD
 	  -o jsonpath='{.data.password}' | base64 -d; echo
 
 .PHONY: prom-ui
-prom-ui: ## Port-forward a Prometheus (http://localhost:9090)
+prom-ui: ctx-check ## Port-forward a Prometheus (http://localhost:9090)
 	@echo "==> http://localhost:9090"
 	$(KUBECTL) -n monitoring port-forward svc/prometheus 9090:9090
 
