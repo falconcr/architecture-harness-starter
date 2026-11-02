@@ -113,12 +113,49 @@ require_clean_tree() {
   ok "Arbol limpio, en main."
 }
 
+# Distingue los tres casos, porque el consejo correcto es distinto en cada uno.
+# El que mas duele en escena es el tercero: despues de reiniciar o suspender la
+# laptop el cluster existe y esta sano, pero el API server tarda ~1 minuto en
+# volver. Mandarte a `make up` ahi es perder 6 minutos por nada.
 require_cluster() {
-  if ! $KUBECTL cluster-info >/dev/null 2>&1; then
-    bad "No encuentro el cluster '${KUBE_CONTEXT}'."
-    note "Levantalo con: make up"
+  local cluster="${CLUSTER_NAME:-harness}"
+
+  $KUBECTL cluster-info >/dev/null 2>&1 && return 0
+
+  # 1) El cluster no existe.
+  if ! kind get clusters 2>/dev/null | grep -qx "$cluster"; then
+    bad "No existe el cluster kind '${cluster}'."
+    note "Crealo con:  make up"
     exit 1
   fi
+
+  # 2) Existe pero sus contenedores estan detenidos (pasa al reiniciar Docker).
+  local stopped
+  stopped="$(docker ps -a --filter "label=io.x-k8s.kind.cluster=${cluster}" \
+    --filter 'status=exited' --format '{{.Names}}' 2>/dev/null | tr '\n' ' ')"
+  if [[ -n "${stopped// /}" ]]; then
+    warn "El cluster '${cluster}' existe pero sus nodos estan detenidos: ${stopped}"
+    note "Arrancalos con:  docker start ${stopped}"
+    note "y volvé a correr el acto en un minuto."
+    exit 1
+  fi
+
+  # 3) Existe y corre, pero el API server todavia no responde: esperamos.
+  warn "El cluster '${cluster}' esta arrancando (el API server todavia no responde)."
+  note "Pasa despues de reiniciar o suspender la laptop. Esperando hasta 2 minutos..."
+  for _ in $(seq 1 24); do
+    sleep 5
+    if $KUBECTL cluster-info >/dev/null 2>&1; then
+      ok "El cluster respondio. Seguimos."
+      return 0
+    fi
+    printf '  %s. esperando al API server de %s...%s\n' "$DIM" "$cluster" "$RESET"
+  done
+
+  bad "El cluster '${cluster}' no respondio en 2 minutos."
+  note "Mirá que pasa:  docker logs ${cluster}-control-plane --tail 30"
+  note "Si no arranca:  make down && make up"
+  exit 1
 }
 
 # El plugin 'kubectl argo rollouts' NO acepta flags antes del nombre del plugin:
