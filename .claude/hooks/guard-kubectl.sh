@@ -54,7 +54,22 @@ MSG
   exit 2
 }
 
-# 1) Contexto explicito en el comando.
+# 1) Un kubeconfig alternativo es, por definicion, un cluster no auditado.
+#
+#    ESTE CHEQUEO VA PRIMERO, y el orden es la parte importante. Cuando estaba
+#    despues del chequeo de contexto, bastaba agregar `--context kind-harness`
+#    para colarse:
+#
+#      kubectl --kubeconfig /tmp/mio.yaml --context kind-harness delete rollout orders
+#
+#    El nombre del contexto no prueba nada: en un kubeconfig que yo escribo,
+#    "kind-harness" puede apuntar al cluster que quiera. Lo que hay que verificar
+#    es de DONDE sale la credencial, no como se llama.
+if grep -qE -- '--kubeconfig[= ]' <<<"$command_line" || grep -qE '(^|[[:space:];&|(])KUBECONFIG=' <<<"$command_line"; then
+  deny "kubeconfig alternativo (no verificable, aunque el contexto se llame $ALLOWED_CONTEXT)"
+fi
+
+# 2) Contexto explicito en el comando.
 #    kubectl y argocd usan --context; helm usa --kube-context. Hay que mirar los dos:
 #    si solo mirabamos --context, `helm --kube-context prod upgrade` se colaba cuando
 #    el contexto activo resultaba ser el permitido.
@@ -62,11 +77,6 @@ explicit_context="$(grep -oE -- '--(kube-)?context[= ]+[^[:space:]]+' <<<"$comma
 if [[ -n "$explicit_context" ]]; then
   [[ "$explicit_context" == "$ALLOWED_CONTEXT" ]] && exit 0
   deny "$explicit_context (explicito en el comando)"
-fi
-
-# 2) Un kubeconfig distinto al del usuario es, por definicion, un cluster no auditado.
-if grep -qE -- '--kubeconfig[= ]' <<<"$command_line" || grep -qE 'KUBECONFIG=' <<<"$command_line"; then
-  deny "kubeconfig alternativo (no verificable)"
 fi
 
 # 3) Contexto activo.

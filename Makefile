@@ -111,6 +111,18 @@ preflight: ## Verifica que tengas las herramientas necesarias
 	if [ "$$node_major" -lt 22 ]; then
 	  echo "Node 22+ requerido (tenes $$(node -v))."; exit 1
 	fi
+	# Un KUBECONFIG apuntando a otro cluster hace que kubectl diga
+	# 'context "kind-harness" does not exist' y parezca que el cluster esta roto.
+	# Es el tropiezo mas comun en una laptop con varios clusters.
+	if [ -n "$${KUBECONFIG:-}" ]; then
+	  echo "AVISO: tenes KUBECONFIG exportado -> $${KUBECONFIG:-}"
+	  if ! kubectl config get-contexts -o name 2>/dev/null | grep -qx "$(KUBE_CONTEXT)"; then
+	    echo "       y ese kubeconfig NO tiene el contexto '$(KUBE_CONTEXT)'."
+	    echo "       Arreglalo con:   unset KUBECONFIG"
+	    exit 1
+	  fi
+	  echo "       (tiene el contexto $(KUBE_CONTEXT), seguimos)"
+	fi
 	if [ -z "$(GIT_REPO_URL)" ]; then
 	  echo ""
 	  echo "No hay remoto 'origin' configurado."

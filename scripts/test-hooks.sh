@@ -38,6 +38,11 @@ echo "guard-kubectl.sh  (ningun cluster que no sea kind-harness)"
 check block guard-kubectl.sh "$(bash_cmd 'kubectl --context prod get pods')"                        "kubectl contra contexto 'prod'"
 check block guard-kubectl.sh "$(bash_cmd 'kubectl --context=gke_acme_prod delete deploy orders')"   "kubectl --context= contra GKE de prod"
 check block guard-kubectl.sh "$(bash_cmd 'kubectl --kubeconfig /tmp/otro.yaml get ns')"             "kubeconfig alternativo"
+# Regresion: el nombre del contexto no prueba nada. En un kubeconfig que yo escribo,
+# "kind-harness" puede apuntar a donde quiera. Antes esto se colaba porque el
+# chequeo de contexto corria antes que el de kubeconfig.
+check block guard-kubectl.sh "$(bash_cmd 'kubectl --kubeconfig /tmp/mio.yaml --context kind-harness delete rollout orders')" "kubeconfig alternativo disfrazado de kind-harness"
+check block guard-kubectl.sh "$(bash_cmd 'KUBECONFIG=/tmp/mio.yaml kubectl --context kind-harness delete ns orders')"        "KUBECONFIG= por delante del comando"
 check block guard-kubectl.sh "$(bash_cmd 'helm --kube-context staging upgrade orders .')"           "helm contra staging"
 check block guard-kubectl.sh "$(bash_cmd 'kubectl --context=production-eu logs deploy/orders')"      "kubectl --context= hacia produccion"
 check allow guard-kubectl.sh "$(bash_cmd 'kubectl --context kind-harness get pods -n orders')"      "kubectl contra kind-harness (permitido)"

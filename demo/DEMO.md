@@ -10,6 +10,9 @@ Tres actos, ~15 minutos en total. Cada acto tiene **lo que hacés**, **lo que de
 ## Preparación
 
 ```bash
+# En la terminal que vas a usar, SIEMPRE primero:
+unset KUBECONFIG                     # ver el checklist del final: es el pie mas facil de meter
+
 # Una sola vez
 npm ci
 make install-rollouts-plugin         # el Acto 2 se ve MUCHO mejor con el plugin
@@ -386,6 +389,18 @@ make down && make up
 
 ## Checklist de 10 minutos antes
 
+- [ ] **`unset KUBECONFIG` en la terminal que vas a proyectar.** Primero esto, antes que nada.
+      Si tenés varios clusters en la laptop, es el tropiezo más probable de toda la demo: con un
+      `KUBECONFIG` apuntando a otro cluster, `kubectl --context kind-harness` responde
+      `context "kind-harness" does not exist` y **parece que el cluster está roto** cuando está
+      perfecto. Pasó verificando este repo, y también le pasó a una sesión de Claude lanzada desde
+      esa misma terminal, que heredó la variable.
+      ```bash
+      echo "$KUBECONFIG"      # tiene que estar vacío
+      unset KUBECONFIG
+      kubectl config current-context    # tiene que decir kind-harness
+      ```
+- [ ] `make preflight` sin errores (chequea el PATH y el kubeconfig por vos).
 - [ ] `make up` corrió y `make rollout-status` dice **Healthy, 5/5**.
 - [ ] `kubectl-argo-rollouts` instalado (`make install-rollouts-plugin`).
 - [ ] `bash demo/reset.sh` corrido: `main` limpio, sin ramas de demo colgadas.
