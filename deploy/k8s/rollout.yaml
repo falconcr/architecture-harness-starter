@@ -17,6 +17,12 @@ spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: orders
+  # Sin estos limites, cada ensayo deja su AnalysisRun y a la quinta corrida
+  # `make analysis` muestra cinco analisis fallidos y no se distingue el de este
+  # deploy. En escena eso confunde mas de lo que explica.
+  analysis:
+    successfulRunHistoryLimit: 1
+    unsuccessfulRunHistoryLimit: 1
   strategy:
     canary:
       # Con 5 replicas: 20 % = 1 pod canary, 80 % = 4 pods estables.

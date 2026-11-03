@@ -121,6 +121,11 @@ if $KUBECTL cluster-info >/dev/null 2>&1; then
     run $KUBECTL -n "$APP_NAMESPACE" delete pods -l app.kubernetes.io/name=orders --wait=false || true
   fi
 
+  # Los AnalysisRun de ensayos anteriores ensucian `make analysis` en escena.
+  if $KUBECTL -n "$APP_NAMESPACE" get analysisrun -o name 2>/dev/null | grep -q .; then
+    run $KUBECTL -n "$APP_NAMESPACE" delete analysisrun --all --wait=false
+  fi
+
   note "Esperando que el Rollout vuelva a estar sano..."
   for _ in $(seq 1 40); do
     phase="$($KUBECTL -n "$APP_NAMESPACE" get rollout orders -o jsonpath='{.status.phase}' 2>/dev/null || echo '')"
@@ -131,6 +136,17 @@ if $KUBECTL cluster-info >/dev/null 2>&1; then
 else
   say "4. Sin cluster: nada que resetear ahi"
   note "Para levantarlo: make up"
+fi
+
+# Las imagenes orders:v2-bug-* de ensayos anteriores quedan en Docker y en kind.
+# No molestan, pero se acumulan.
+stale_images="$(docker images 'orders' --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -E '^orders:v2-bug' || true)"
+if [[ -n "$stale_images" ]]; then
+  say "5. Limpiando imagenes de ensayos anteriores"
+  echo "$stale_images" | while read -r img; do
+    [[ -z "$img" ]] && continue
+    docker rmi "$img" >/dev/null 2>&1 && note "borrada: $img" || true
+  done
 fi
 
 echo ""

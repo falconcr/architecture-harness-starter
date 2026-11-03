@@ -14,7 +14,18 @@
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 BRANCH="${ACT2_BRANCH:-demo/acto-2-canary}"
-BUG_TAG="v2-bug"
+
+# El tag lleva un sufijo unico por corrida, y NO es un detalle cosmetico.
+#
+# Argo Rollouts identifica una revision por el hash del pod template. Si el
+# manifiesto es byte por byte el mismo en cada ensayo, el hash se repite, el
+# ReplicaSet se reusa y el Rollout RECUERDA que ya abortó esa revision: salta
+# directo a Degraded sin pasar por 20 % -> analisis -> rollback. O sea, en el
+# segundo ensayo no se ve nada, que es justo lo que hay que mostrar.
+#
+# Con un tag distinto, el pod template cambia -> hash nuevo -> revision nueva ->
+# el analisis corre de cero. Podes forzar uno fijo con ACT2_BUG_TAG.
+BUG_TAG="${ACT2_BUG_TAG:-v2-bug-$(date +%H%M%S)}"
 
 banner "ACTO 2 — El canary atrapa el bug"
 
@@ -26,6 +37,7 @@ pause_demo
 
 say "1. Construimos la version con el bug y la cargamos en el cluster"
 note "orders:${BUG_TAG} es el mismo codigo; el bug se activa con FAULT_RATE=0.3."
+note "(el sufijo cambia en cada corrida para que el Rollout lo vea como revision nueva)"
 note "(En un repo real seria un bug de verdad; aca necesitamos que sea reproducible)."
 run docker build -t "orders:${BUG_TAG}" .
 run kind load docker-image "orders:${BUG_TAG}" --name harness
