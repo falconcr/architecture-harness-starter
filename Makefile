@@ -242,6 +242,63 @@ analysis: ## Muestra los AnalysisRun y por que pasaron o fallaron
 	    -o jsonpath='{range .status.metricResults[*]}{.name}{": phase="}{.phase}{" exitosas="}{.successful}{" fallidas="}{.failed}{"\n"}{range .measurements[*]}{"    valor="}{.value}{" fase="}{.phase}{"\n"}{end}{end}'
 	done
 
+.PHONY: canary-report
+canary-report: ctx-check ## TODA la evidencia del canary en un comando (lo que usa canary-analyst)
+	@echo "============================================================"
+	echo " INFORME DEL CANARY - $$(date '+%Y-%m-%d %H:%M:%S')"
+	echo " Solo lectura. Nada de esto modifica el cluster."
+	echo "============================================================"
+	echo ""
+	echo "--- 1. ROLLOUT -------------------------------------------"
+	$(KUBECTL) -n $(APP_NAMESPACE) get rollout orders -o jsonpath='fase:            {.status.phase}{"\n"}mensaje:         {.status.message}{"\n"}abortado:        {.status.abort}{"\n"}imagen deseada:  {.spec.template.spec.containers[0].image}{"\n"}revision canary: {.status.currentPodHash}{"\n"}revision estable:{.status.stableRS}{"\n"}replicas listas: {.status.readyReplicas}/{.spec.replicas}{"\n"}'
+	echo ""
+	echo "--- 2. UMBRALES DECLARADOS (deploy/k8s/analysistemplate.yaml) ---"
+	grep -E 'name: (error-rate|latency-p95)|successCondition|interval:|count:|failureLimit' 	  deploy/k8s/analysistemplate.yaml | sed 's/^ */    /'
+	echo ""
+	echo "--- 3. MEDICIONES REALES ---------------------------------"
+	if ! $(KUBECTL) -n $(APP_NAMESPACE) get analysisrun -o name 2>/dev/null | grep -q .; then
+	  echo "    NO HAY NINGUN AnalysisRun."
+	  echo "    Un gate sin datos es un gate ciego: eso es un hallazgo, no un detalle."
+	  echo "    Si acabas de resetear la demo, todavia no corrio ningun analisis."
+	else
+	  for ar in $$($(KUBECTL) -n $(APP_NAMESPACE) get analysisrun -o name 2>/dev/null); do
+	    echo "    $$ar"
+	    $(KUBECTL) -n $(APP_NAMESPACE) get $$ar -o jsonpath='{range .status.metricResults[*]}      {.name}: fase={.phase} exitosas={.successful} fallidas={.failed}{"\n"}{range .measurements[*]}          valor={.value} fase={.phase}{"\n"}{end}{end}'
+	    echo ""
+	  done
+	fi
+	echo "--- 4. PROMETHEUS, POR VERSION ---------------------------"
+	echo "    tasa de error por revision (umbral del gate: < 0.05)"
+	bash scripts/prom-query.sh '(sum by (pod_hash) (rate(http_requests_total{app="orders",status=~"5.."}[1m])) or sum by (pod_hash) (rate(http_requests_total{app="orders"}[1m])) * 0) / sum by (pod_hash) (rate(http_requests_total{app="orders"}[1m]))' 2>&1 | tail -n +2 | sed 's/^/    /'
+	echo ""
+	echo "    p95 de latencia por revision en segundos (umbral: < 0.3)"
+	bash scripts/prom-query.sh 'histogram_quantile(0.95, sum by (pod_hash, le) (rate(http_request_duration_seconds_bucket{app="orders"}[1m])))' 2>&1 | tail -n +2 | sed 's/^/    /'
+	echo ""
+	echo "    trafico por revision (si una da 0, el gate no tenia datos)"
+	bash scripts/prom-query.sh 'sum by (pod_hash) (rate(http_requests_total{app="orders"}[1m]))' 2>&1 | tail -n +2 | sed 's/^/    /'
+	echo ""
+	echo "--- 5. LOGS: SOLO LO QUE IMPORTA -------------------------"
+	# 15 lineas por pod de requests exitosos son ruido: esconden la senal y hacen
+	# que un agente gaste turnos leyendo nada. Resumimos y mostramos solo errores.
+	logs="$$($(KUBECTL) -n $(APP_NAMESPACE) logs -l app.kubernetes.io/name=orders --tail=200 --prefix 2>/dev/null || true)"
+	if [ -z "$$logs" ]; then
+	  echo "    (sin logs)"
+	else
+	  echo "    conteo por codigo de estado (ultimas 200 lineas por pod):"
+	  printf '%s\n' "$$logs" | grep -oE '"statusCode":[0-9]+' | sort | uniq -c | sed 's/^/        /' || true
+	  echo ""
+	  echo "    hasta 5 errores 5xx, con el pod que los genero:"
+	  errors="$$(printf '%s\n' "$$logs" | grep -E '"statusCode":5[0-9][0-9]' | tail -5 || true)"
+	  if [ -z "$$errors" ]; then
+	    echo "        ninguno. Si el canary fallo pero aca no hay 5xx, es porque el pod"
+	    echo "        canary ya fue escalado a cero y sus logs se fueron con el."
+	  else
+	    printf '%s\n' "$$errors" | sed 's/^/        /'
+	  fi
+	fi
+	echo ""
+	echo "============================================================"
+
 .PHONY: smoke
 smoke: ## Pegale al servicio desde dentro del cluster
 	@$(KUBECTL) -n $(APP_NAMESPACE) run smoke-$$RANDOM --rm -i --restart=Never \

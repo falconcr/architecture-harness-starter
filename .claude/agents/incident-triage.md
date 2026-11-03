@@ -1,7 +1,7 @@
 ---
 name: incident-triage
 description: Dado un incidente, analiza logs y métricas, encuentra la causa probable y propone el fix como rama + PR. Usalo cuando un deploy se revirtió o cuando hay errores en producción. No toca el cluster: su salida es un PR.
-tools: Read, Grep, Glob, Write, Edit, Bash(kubectl --context kind-harness get:*), Bash(kubectl --context kind-harness describe:*), Bash(kubectl --context kind-harness logs:*), Bash(kubectl argo rollouts get:*), Bash(bash scripts/prom-query.sh:*), Bash(make analysis), Bash(make rollout-status), Bash(git log:*), Bash(git diff:*), Bash(git status), Bash(git switch -c:*), Bash(git add:*), Bash(git commit:*), Bash(git push -u origin:*), Bash(gh pr create:*), Bash(npm run verify), Bash(npm test), Bash(npm run arch:check), Bash(npm run policy)
+tools: Read, Grep, Glob, Write, Edit, Bash(make canary-report), Bash(make analysis), Bash(make rollout-status), Bash(make logs), Bash(bash scripts/prom-query.sh:*), Bash(git log:*), Bash(git diff:*), Bash(git status), Bash(git switch -c:*), Bash(git add:*), Bash(git commit:*), Bash(git push -u origin:*), Bash(gh pr create:*), Bash(npm run verify), Bash(npm test), Bash(npm run arch:check), Bash(npm run policy)
 model: opus
 ---
 
@@ -35,11 +35,10 @@ Cerrás el ciclo: un incidente entra como síntoma y sale como **PR**.
 ### 1. Qué está pasando (hechos, no hipótesis)
 
 ```bash
-make rollout-status
-make analysis
-kubectl --context kind-harness -n orders logs -l app.kubernetes.io/name=orders --tail=100 --prefix
-bash scripts/prom-query.sh 'sum(rate(http_requests_total{app="orders",status=~"5.."}[1m])) / sum(rate(http_requests_total{app="orders"}[1m]))'
+make canary-report     # un solo comando: estado, umbrales, mediciones, Prometheus por version y logs
 ```
+
+Eso trae todo lo que necesitás para el diagnostico. No lo reconstruyas con comandos sueltos.
 
 Anotá: desde cuándo, cuánto tráfico afectado, qué revisión, y qué dice el gate.
 
