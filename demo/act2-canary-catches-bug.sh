@@ -298,6 +298,10 @@ cat <<'MSG'
     > Usa el subagente canary-analyst para explicarme por que fallo el canary
     > del Rollout orders.
 
+  Internamente corre UN comando: `make canary-report`. Si queres ver los datos
+  crudos antes que el agente, corrilo vos: trae estado, umbrales, mediciones,
+  Prometheus por version y logs resumidos.
+
   canary-analyst puede leer Prometheus, los AnalysisRun y los logs.
   NO puede promover, NO puede abortar, NO puede tocar el cluster.
   Llega despues del rollback, no en lugar del rollback.

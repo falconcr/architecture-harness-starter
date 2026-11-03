@@ -161,7 +161,11 @@ PR que dejó `architect-reviewer` es la frutilla: podés mostrar los dos lados d
 5. Argo Rollouts manda **20 %** del tráfico (1 de 5 réplicas) a la versión nueva.
 6. El `AnalysisTemplate` **error-rate** espera 30 s, mide, y con **una** medición fallida aborta.
 7. **Rollback automático** a la revisión estable. Nadie aprobó nada.
-8. En la Terminal B, `canary-analyst` explica el veredicto.
+8. En la Terminal B, `canary-analyst` explica el veredicto. Internamente corre **un solo**
+   comando, `make canary-report`, que trae el estado del Rollout, los umbrales, las mediciones
+   reales, Prometheus separado por versión y los logs resumidos. Si el agente te parece lento o
+   dice que no encuentra datos, corré vos ese comando: si el informe está vacío, el problema no
+   es el agente.
 
 ### Lo que decís
 
