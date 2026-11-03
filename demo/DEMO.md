@@ -410,6 +410,72 @@ No toqué el cluster. El rollback lo hizo Argo Rollouts. **Este PR necesita apro
 
 ---
 
+## Prompts para invocar los subagentes
+
+En Claude Code los subagentes de `.claude/agents/` se invocan **nombrándolos**. `/agents` te los
+lista. El patrón que funciona siempre:
+
+```
+Usa el subagente <nombre> para <tarea concreta>.
+```
+
+Tres reglas para que respondan rápido y no den vueltas:
+
+1. **Nombralo.** Si no lo nombrás, contesta el agente principal, que no tiene el scope ni las
+   instrucciones del subagente.
+2. **Tarea concreta, no pregunta abierta.** "Explicame por qué falló el canary del Rollout orders"
+   funciona; "qué está pasando con el cluster" lo manda a explorar.
+3. **No le pidas que diagnostique el entorno.** Si `kubectl` no llega al cluster, el agente
+   reporta y se detiene — por diseño. Eso lo arreglás vos con `unset KUBECONFIG`.
+
+### Los cinco, listos para copiar
+
+**Acto 1 — `architect-reviewer`**
+```
+Usa el subagente architect-reviewer para revisar el diff de esta rama contra los
+ADRs y explicarme qué decisión se violó y cómo se arregla.
+```
+
+**Acto 2 — `canary-analyst`**
+```
+Usa el subagente canary-analyst para explicarme por qué falló el canary del
+Rollout orders.
+```
+
+**Acto 3 — `incident-triage`**
+```
+Usa el subagente incident-triage: el canary del Rollout orders se revirtió.
+Analizá métricas y logs, encontrá la causa raíz y propone el fix como rama y PR.
+```
+
+**Extra — `test-writer`** (útil si te preguntan por la etapa Code)
+```
+Usa el subagente test-writer para cubrir con tests el caso de FAULT_RATE en
+src/infrastructure/config.ts.
+```
+
+**Extra — `release-notes`** (útil para la etapa Release)
+```
+Usa el subagente release-notes para generar el changelog de los commits desde el
+último tag.
+```
+
+### Si el agente tarda o dice que no encuentra datos
+
+Corré vos el comando que usa por dentro. Es el diagnóstico más rápido:
+
+```bash
+make canary-report
+```
+
+| Lo que ves | Qué significa |
+|---|---|
+| Informe completo con mediciones | el agente tiene todo; debería responder en un turno |
+| `context "kind-harness" does not exist` | el `KUBECONFIG` de esa terminal. `unset KUBECONFIG` y **relanzá la sesión de Claude desde ahí** (el agente hereda la variable) |
+| `NO HAY NINGUN AnalysisRun` | no hay nada que analizar todavía: corré el Acto 2 primero |
+
+---
+
 ## Reset: repetir la demo desde cero
 
 ```bash
