@@ -31,7 +31,82 @@ banner "ACTO 2 — El canary atrapa el bug"
 
 require_cluster
 
+# ---------------------------------------------------------------------------
+# Punto de partida limpio.
+#
+# Por que esto esta aca y no te obliga a correr demo/reset.sh antes: si el
+# Rollout quedo Degraded de un ensayo anterior, o Argo CD sigue apuntando a la
+# rama del acto, el acto arranca desde un estado que no es el que la demo
+# cuenta. Esto deja SOLO lo que el Acto 2 necesita.
+#
+# No es el reset completo: no corre `npm run verify` ni borra ramas en origin
+# (eso es `bash demo/reset.sh`). Si ya esta limpio, no hace nada y no te cuesta
+# tiempo en escena.
+# ---------------------------------------------------------------------------
+prepare_stage() {
+  local argocd_branch rollout_phase analysis_count dirty=0
+
+  argocd_branch="$($KUBECTL -n argocd get application orders \
+    -o jsonpath='{.spec.source.targetRevision}' 2>/dev/null || echo '')"
+  rollout_phase="$($KUBECTL -n "$APP_NAMESPACE" get rollout orders \
+    -o jsonpath='{.status.phase}' 2>/dev/null || echo '')"
+  analysis_count="$($KUBECTL -n "$APP_NAMESPACE" get analysisrun \
+    --no-headers 2>/dev/null | wc -l | tr -d ' ')"
+
+  [[ "$argocd_branch" != "main" ]] && dirty=1
+  [[ "$rollout_phase" != "Healthy" ]] && dirty=1
+  [[ "${analysis_count:-0}" != "0" ]] && dirty=1
+
+  if [[ "$dirty" == "0" ]]; then
+    ok "Punto de partida limpio: Argo CD en main, Rollout Healthy, sin analisis viejos."
+    return 0
+  fi
+
+  warn "Quedaron restos de un ensayo anterior. Los limpio (solo lo del Acto 2):"
+  [[ "$argocd_branch" != "main" ]] && note "  Argo CD apuntaba a '$argocd_branch' en vez de main"
+  [[ "$rollout_phase" != "Healthy" ]] && note "  el Rollout estaba en '$rollout_phase'"
+  [[ "${analysis_count:-0}" != "0" ]] && note "  habia $analysis_count AnalysisRun de antes"
+  echo ""
+
+  if [[ "$argocd_branch" != "main" ]]; then
+    make --no-print-directory argocd-app GIT_BRANCH=main
+    make --no-print-directory sync
+  fi
+
+  if [[ "${analysis_count:-0}" != "0" ]]; then
+    $KUBECTL -n "$APP_NAMESPACE" delete analysisrun --all --wait=false >/dev/null 2>&1 || true
+    note "AnalysisRun viejos borrados."
+  fi
+
+  # Un Rollout abortado necesita que el pod template vuelva al sano; el sync de
+  # Argo CD ya lo hizo, pero el restart acelera que los pods se renueven.
+  if [[ "$rollout_phase" != "Healthy" ]]; then
+    if command -v kubectl-argo-rollouts >/dev/null 2>&1; then
+      kubectl argo rollouts restart orders -n "$APP_NAMESPACE" --context "$KUBE_CONTEXT" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  note "Esperando el punto de partida (Rollout Healthy sobre la version estable)..."
+  for _ in $(seq 1 48); do
+    local phase image
+    phase="$($KUBECTL -n "$APP_NAMESPACE" get rollout orders -o jsonpath='{.status.phase}' 2>/dev/null || echo '')"
+    image="$($KUBECTL -n "$APP_NAMESPACE" get rollout orders \
+      -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || echo '')"
+    if [[ "$phase" == "Healthy" && "$image" != *v2-bug* ]]; then
+      ok "Listo: Rollout Healthy sobre $image"
+      return 0
+    fi
+    sleep 5
+  done
+
+  bad "No pude dejar el punto de partida limpio en 4 minutos."
+  note "Hacelo a mano con:  bash demo/reset.sh"
+  exit 1
+}
+
 say "0. Punto de partida: el Rollout 'orders' esta sano en la revision estable"
+prepare_stage
+echo ""
 run rollout_view
 pause_demo
 
