@@ -65,6 +65,35 @@ is_act_leftover() {
   return 1
 }
 
+# El script que estas corriendo (lo setea cada acto al hacer source de lib.sh).
+HARNESS_SCRIPT="${BASH_SOURCE[1]:-}"
+
+# Si un acto arranca parado en la rama de OTRO acto, volvemos a main y
+# RE-EJECUTAMOS el acto desde ahi.
+#
+# Por que el re-exec y no solo el switch: la rama de un acto es una foto de main
+# del momento en que se creo, asi que su copia de los scripts puede ser vieja.
+# Correr el Acto 2 dos veces seguidas ejecutaba la version VIEJA del script (la
+# de la rama), y los arreglos nuevos no se aplicaban. Un switch a mitad de
+# ejecucion no alcanza: bash ya leyo el archivo equivocado.
+reexec_from_main() {
+  [[ "${HARNESS_REEXEC:-0}" == "1" ]] && return 0
+  [[ -z "$HARNESS_SCRIPT" ]] && return 0
+
+  local current
+  current="$(git branch --show-current 2>/dev/null || echo '')"
+  [[ -z "$current" || "$current" == "main" ]] && return 0
+
+  # Con cambios sin commitear no tocamos nada: que lo diagnostique require_clean_tree.
+  [[ -n "$(git status --porcelain)" ]] && return 0
+
+  note "Estabas en la rama '$current'. Vuelvo a main y re-ejecuto el acto desde ahi"
+  note "(esa rama es una foto vieja del repo y sus scripts pueden estar atrasados)."
+  echo ""
+  git switch -q main || return 0
+  HARNESS_REEXEC=1 exec bash "$HARNESS_SCRIPT" "$@"
+}
+
 # Todo acto arranca desde main. Si no, el Acto 3 se construye sobre la rama del
 # Acto 2 (que lleva FAULT_RATE=0.3 commiteado), el guardrail nuevo rechaza su
 # propio manifiesto y el acto aborta. Pasó verificando este repo.

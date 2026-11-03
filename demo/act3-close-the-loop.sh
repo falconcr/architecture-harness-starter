@@ -11,6 +11,9 @@
 # =============================================================================
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
+# Si venimos de la rama de otro acto, volvemos a main y re-ejecutamos desde ahi.
+reexec_from_main "$@"
+
 BRANCH="${ACT3_BRANCH:-fix/fault-rate-guard}"
 
 banner "ACTO 3 — Se cierra el ciclo"

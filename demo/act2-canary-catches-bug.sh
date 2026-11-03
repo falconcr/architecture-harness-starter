@@ -13,6 +13,9 @@
 # =============================================================================
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
+# Si venimos de la rama de otro acto, volvemos a main y re-ejecutamos desde ahi.
+reexec_from_main "$@"
+
 BRANCH="${ACT2_BRANCH:-demo/acto-2-canary}"
 
 # El tag lleva un sufijo unico por corrida, y NO es un detalle cosmetico.

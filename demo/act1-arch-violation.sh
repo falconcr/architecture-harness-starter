@@ -10,6 +10,9 @@
 # =============================================================================
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
+# Si venimos de la rama de otro acto, volvemos a main y re-ejecutamos desde ahi.
+reexec_from_main "$@"
+
 BRANCH="demo/acto-1-violacion"
 
 banner "ACTO 1 — El agente viola la arquitectura"
