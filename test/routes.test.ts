@@ -69,7 +69,7 @@ describe('FAULT_RATE', () => {
   });
 
   it('con FAULT_RATE=0.3 falla aproximadamente el 30% de los requests', async () => {
-    const server = await startApp({ FAULT_RATE: '0.3' });
+    const server = await startApp({ FAULT_RATE: '0.3', ALLOW_FAULT_INJECTION: 'true' });
     let failures = 0;
     const total = 100;
     for (let i = 0; i < total; i += 1) {
@@ -81,7 +81,7 @@ describe('FAULT_RATE', () => {
   });
 
   it('con FAULT_RATE=0.3 la salud sigue sana (el canary debe morir por analisis, no por readiness)', async () => {
-    const server = await startApp({ FAULT_RATE: '0.3' });
+    const server = await startApp({ FAULT_RATE: '0.3', ALLOW_FAULT_INJECTION: 'true' });
     for (let i = 0; i < 20; i += 1) {
       expect((await server.inject({ method: 'GET', url: '/healthz' })).statusCode).toBe(200);
       expect((await server.inject({ method: 'GET', url: '/readyz' })).statusCode).toBe(200);
