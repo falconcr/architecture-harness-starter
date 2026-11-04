@@ -71,7 +71,7 @@ spec:
         - name: orders
           # Tag inmutable: ':latest' esta prohibido por policy/kubernetes.rego.
           # El Acto 2 de la demo cambia este tag a orders:v2-bug.
-          image: orders:v1
+          image: orders:v2-bug-201646
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -81,11 +81,11 @@ spec:
                 name: orders-config
           env:
             - name: APP_VERSION
-              value: v1
+              value: v2-bug-201646
             # Inyeccion de fallos para la demo del canary. En una build sana es "0".
             # El Acto 2 lo pone en "0.3" y el analisis lo atrapa.
             - name: FAULT_RATE
-              value: "0"
+              value: "0.3"
           resources:
             requests:
               cpu: 25m
